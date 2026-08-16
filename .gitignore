@@ -1,0 +1,19 @@
+# Binaries
+bin/
+*.exe
+*.test
+*.out
+
+# Environment
+.env
+.env.local
+
+# Local runtime data
+data/
+tmp/
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

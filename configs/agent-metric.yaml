@@ -1,0 +1,6 @@
+service:
+  name: agent-metric
+  http_addr: ":8082"
+log:
+  level: info
+  format: json

@@ -1,0 +1,6 @@
+service:
+  name: agent-fix
+  http_addr: ":8085"
+log:
+  level: info
+  format: json

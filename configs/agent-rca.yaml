@@ -1,0 +1,6 @@
+service:
+  name: agent-rca
+  http_addr: ":8084"
+log:
+  level: info
+  format: json

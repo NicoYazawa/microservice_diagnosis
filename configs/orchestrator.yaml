@@ -1,0 +1,6 @@
+service:
+  name: orchestrator
+  http_addr: ":8080"
+log:
+  level: info
+  format: json

@@ -1,0 +1,6 @@
+service:
+  name: agent-trace
+  http_addr: ":8083"
+log:
+  level: info
+  format: json
