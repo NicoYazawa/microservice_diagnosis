@@ -1,2 +1,2 @@
--- mfdh ClickHouse 初始化脚本（M0）
--- 日志表 / 链路表 / 物化视图将在 M2 / M4 里程碑创建。
+-- mfdh ClickHouse init script (M0)
+-- Log / trace tables and materialized views will be created in the M2 / M4 milestones.

@@ -1,4 +1,4 @@
-// Package bootstrap 提供服务标准启动流程：加载配置 → 初始化日志 → 启动健康检查 → 优雅退出。
+// Package bootstrap provides the standard service startup flow: load config -> init logger -> start health checks -> graceful shutdown.
 package bootstrap
 
 import (
@@ -17,11 +17,11 @@ import (
 	"github.com/NicoYazawa/microservice_diagnosis/internal/server"
 )
 
-// Options 预留：后续里程碑在此注入 bus / store / workflow 等依赖。
+// Options is reserved for future milestones to inject bus / store / workflow dependencies.
 type Options struct{}
 
-// Run 启动一个服务的标准流程。
-// serviceName 同时用于默认配置路径（configs/<name>.yaml）与日志 service 字段。
+// Run starts a service using the standard flow.
+// serviceName is also used for the default config path (configs/<name>.yaml) and the log service field.
 func Run(serviceName string, _ Options) error {
 	defaultCfg := fmt.Sprintf("configs/%s.yaml", serviceName)
 	configPath := flag.String("config", defaultCfg, "path to config file")

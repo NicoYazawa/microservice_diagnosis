@@ -1,4 +1,5 @@
-// Orchestrator 服务入口：负责诊断会话生命周期调度（状态机、任务分发）。
+// Orchestrator service entrypoint: schedules the diagnostic session lifecycle
+// (state machine, task dispatch).
 package main
 
 import (

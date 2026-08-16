@@ -1,5 +1,5 @@
-// Package server 提供 HTTP 服务装配能力。
-// M0 阶段仅包含健康检查；M5 里程碑在此引入 Gin + gRPC-Gateway。
+// Package server provides HTTP server assembly capabilities.
+// M0 only includes health checks; M5 will introduce Gin + gRPC-Gateway here.
 package server
 
 import (
@@ -8,9 +8,9 @@ import (
 	"time"
 )
 
-// NewHealth 构造基础健康检查 HTTP 服务：
-//   - /healthz 存活探针
-//   - /readyz 就绪探针（后续里程碑接入依赖就绪状态）
+// NewHealth builds the basic health-check HTTP server:
+//   - /healthz liveness probe
+//   - /readyz readiness probe (future milestones will surface dependency readiness)
 func NewHealth(addr string, log *slog.Logger) *http.Server {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -29,7 +29,7 @@ func NewHealth(addr string, log *slog.Logger) *http.Server {
 	}
 }
 
-// logRequests 简单请求访问日志中间件。
+// logRequests is a simple request access log middleware.
 func logRequests(log *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()

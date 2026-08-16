@@ -7,4 +7,4 @@ scrape_configs:
     static_configs:
       - targets: ["localhost:9090"]
 
-  # 靶场目标微服务与各 Agent 指标端点将在 M4 / M9 里程碑加入
+  # Target microservices and agent metric endpoints will be added in the M4 / M9 milestones

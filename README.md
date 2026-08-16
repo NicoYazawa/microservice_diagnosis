@@ -1,43 +1,43 @@
-# 微服务故障诊断中枢系统（mfdh）
+# Microservice Fault Diagnosis Hub (mfdh)
 
-事件驱动的微服务诊断平台：**诊断 → 根因 → 修复建议 →（高风险人工审批）→ 工单 / 通知 → 修复验证**。
+An event-driven microservice diagnosis platform: **diagnosis -> root cause -> fix suggestion -> (human approval for high risk) -> ticket / notification -> fix verification**.
 
 ![CodeRabbit Pull Request Reviews](https://img.shields.io/coderabbit/prs/github/NicoYazawa/microservice_diagnosis?utm_source=oss&utm_medium=github&utm_campaign=NicoYazawa%2Fmicroservice_diagnosis&labelColor=171717&color=FF570A&link=https%3A%2F%2Fcoderabbit.ai&label=CodeRabbit+Reviews)
 
-## 技术栈
+## Tech Stack
 
 Go 1.25+ · gRPC · Kafka · ClickHouse · PostgreSQL · Redis · Consul · Prometheus · Gin + gRPC-Gateway
 
-## 组件版本（2026-08-16 核实的当前最新稳定版）
+## Component Versions (verified stable as of 2026-08-16)
 
-| 组件 | 版本 | 说明 |
+| Component | Version | Notes |
 |---|---|---|
-| Go | 1.26.3（本机工具链） | go.mod 最低要求 1.25 |
-| Kafka | 4.3.1 | 官方 `apache/kafka` 镜像（bitnami 已停更，弃用） |
-| PostgreSQL | 18-alpine（18.6） | |
-| ClickHouse | 26.7（26.7.3.19-stable） | |
-| Redis | 8-alpine（8.10.0） | |
-| Consul | 2.0.3 | 1.x 线最新为 1.22.7 |
+| Go | 1.26.3 (local toolchain) | go.mod requires at least 1.25 |
+| Kafka | 4.3.1 | Official `apache/kafka` image (bitnami discontinued) |
+| PostgreSQL | 18-alpine (18.6) | |
+| ClickHouse | 26.7 (26.7.3.19-stable) | |
+| Redis | 8-alpine (8.10.0) | |
+| Consul | 2.0.3 | Latest on the 1.x line is 1.22.7 |
 | Prometheus | v3.13.2 | |
 
-## 快速开始
+## Quick Start
 
-### 1. 启动中间件（6 个）
+### 1. Start middleware (6 services)
 
 ```bash
 docker compose -f deployments/docker-compose.yml up -d
 ```
 
-| 组件 | 地址 | 说明 |
+| Component | Address | Notes |
 |---|---|---|
-| Kafka | `localhost:29092` | KRaft 单节点（宿主 9092 被系统保留，映射到 29092） |
-| PostgreSQL | `localhost:5432` | 用户/密码 `mfdh/mfdh`，库 `diagnosis` |
-| ClickHouse | `localhost:8123`（HTTP）/ `19000`（原生） | 原生 9000 被系统保留，映射到 19000 |
-| Redis | `localhost:6379` | 开启 AOF |
+| Kafka | `localhost:29092` | KRaft single node (host 9092 reserved, mapped to 29092) |
+| PostgreSQL | `localhost:5432` | user/password `mfdh/mfdh`, database `diagnosis` |
+| ClickHouse | `localhost:8123` (HTTP) / `19000` (native) | native 9000 reserved, mapped to 19000 |
+| Redis | `localhost:6379` | AOF enabled |
 | Consul | `localhost:8500` | Web UI |
-| Prometheus | `localhost:29090` | 宿主 9090 被系统保留，映射到 29090 |
+| Prometheus | `localhost:29090` | host 9090 reserved, mapped to 29090 |
 
-### 2. 构建与运行
+### 2. Build and run
 
 ```bash
 go build ./...
@@ -45,12 +45,29 @@ go vet ./...
 go run ./cmd/orchestrator -config configs/orchestrator.yaml
 ```
 
-健康检查：`curl http://localhost:8080/healthz` → `ok`
+Health check: `curl http://localhost:8080/healthz` -> `ok`
 
-## 目录结构
+### 3. Contract generation (M1)
 
-见 [PLAN.md](./PLAN.md) §3。
+Contracts live in `api/proto/v1/` (observation / orchestrator / agent). One proto serves both gRPC and REST (via gRPC-Gateway).
 
-## 里程碑进度
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/gen-proto.ps1   # or: make proto-gen
+```
 
-见 [PLAN.md](./PLAN.md) §10。当前完成：**M0（工程骨架 + 基础设施 + 6 服务入口）**。
+- The first run auto-downloads protoc + 4 generator plugins into `bin/` (gitignored, no system pollution).
+- Generated code is committed: `api/gen/<pkg>/v1/*.pb.go`, `*.pb.gw.go`, `*_grpc.pb.go`.
+- OpenAPI: `api/gen/openapi/mfdh.swagger.json` (merged spec, importable into Swagger UI).
+- Contract tests: `go test ./internal/observation/ -cover` (round-trip / schema_version / illegal field rejection).
+
+## Directory Structure
+
+See [PLAN.md](./PLAN.md) section 3.
+
+## Milestone Progress
+
+See [PLAN.md](./PLAN.md) section 10. Currently completed: **M0 (project skeleton + infrastructure + 6 service entrypoints) + M1 (contracts: 3 protos + generation pipeline + round-trip contract tests)**.
+
+## Language Policy
+
+All repository content MUST be English-only (no Chinese/CJK characters), enforced by the project skill `.claude/skills/english-only/`. `PLAN.md` is the only allowed exception.

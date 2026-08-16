@@ -1,4 +1,5 @@
-// agent-log 服务入口：采集目标服务日志，产出 LOG 类型 Observation。
+// agent-log service entrypoint: collects logs from the target service,
+// emitting LOG type Observations.
 package main
 
 import (

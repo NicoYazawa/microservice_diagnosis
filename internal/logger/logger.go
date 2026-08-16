@@ -1,4 +1,4 @@
-// Package logger 基于标准库 log/slog 的统一日志封装。
+// Package logger is a thin wrapper around the standard library log/slog.
 package logger
 
 import (
@@ -7,14 +7,14 @@ import (
 	"strings"
 )
 
-// Options 日志初始化选项。
+// Options holds logger initialization options.
 type Options struct {
 	Level   string // debug / info / warn / error
 	Format  string // json / text
-	Service string // 服务名，注入每条日志
+	Service string // service name injected into every log record
 }
 
-// New 构造 slog.Logger。
+// New builds a slog.Logger.
 func New(opts Options) *slog.Logger {
 	level := parseLevel(opts.Level)
 

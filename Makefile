@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-.PHONY: build vet test tidy up down ps logs run-orchestrator run-agent-log
+.PHONY: build vet test tidy up down ps logs run-orchestrator run-agent-log proto-gen
 
 build:
 	go build ./cmd/...
@@ -31,3 +31,6 @@ run-orchestrator:
 
 run-agent-log:
 	go run ./cmd/agent-log -config configs/agent-log.yaml
+
+proto-gen:
+	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/gen-proto.ps1

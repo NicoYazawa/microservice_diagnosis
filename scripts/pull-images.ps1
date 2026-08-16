@@ -1,5 +1,5 @@
-# 拉取 M0 基础设施所需镜像（带超时与重试，适配不稳定网络）。
-# 用法: powershell -File scripts/pull-images.ps1
+# Pull images required by M0 infrastructure (with timeout and retry, for unstable networks).
+# Usage: powershell -File scripts/pull-images.ps1
 $ErrorActionPreference = 'Continue'
 
 $images = @(

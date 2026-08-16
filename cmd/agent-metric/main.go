@@ -1,4 +1,5 @@
-// agent-metric 服务入口：采集目标服务指标，产出 METRIC 类型 Observation。
+// agent-metric service entrypoint: collects metrics from the target service,
+// emitting METRIC type Observations.
 package main
 
 import (

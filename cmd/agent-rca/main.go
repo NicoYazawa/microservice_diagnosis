@@ -1,4 +1,5 @@
-// agent-rca 服务入口：基于汇聚证据调用 LLM 进行根因分析，产出 RCA_RESULT 类型 Observation。
+// agent-rca service entrypoint: performs root cause analysis by calling an LLM
+// on the aggregated evidence, emitting RCA_RESULT type Observations.
 package main
 
 import (

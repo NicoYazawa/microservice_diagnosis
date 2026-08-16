@@ -1,4 +1,4 @@
-// Package config 提供服务配置加载能力（YAML + 环境变量覆盖）。
+// Package config provides service configuration loading (YAML + environment variable override).
 package config
 
 import (
@@ -8,26 +8,26 @@ import (
 	"github.com/spf13/viper"
 )
 
-// Service 服务基础配置。
+// Service holds the base service configuration.
 type Service struct {
 	Name     string `mapstructure:"name"`
 	HTTPAddr string `mapstructure:"http_addr"`
 }
 
-// Log 日志配置。
+// Log holds the logger configuration.
 type Log struct {
 	Level  string `mapstructure:"level"`  // debug / info / warn / error
 	Format string `mapstructure:"format"` // json / text
 }
 
-// Config 服务通用配置。后续里程碑按需扩展子结构（bus/store/workflow/llm 等）。
+// Config holds the common service configuration. Future milestones will extend sub-structures (bus/store/workflow/llm etc.).
 type Config struct {
 	Service Service `mapstructure:"service"`
 	Log     Log     `mapstructure:"log"`
 }
 
-// Load 从 path 加载 YAML 配置。
-// 支持环境变量覆盖：前缀 MFDH_，层级点号转下划线，例如 MFDH_LOG_LEVEL=debug。
+// Load loads YAML configuration from path.
+// Supports environment variable overrides: prefix MFDH_, dots become underscores, e.g. MFDH_LOG_LEVEL=debug.
 func Load(path string) (*Config, error) {
 	v := viper.New()
 	v.SetConfigFile(path)

@@ -1,4 +1,5 @@
-// agent-trace 服务入口：采集目标服务链路，产出 TRACE 类型 Observation。
+// agent-trace service entrypoint: collects traces from the target service,
+// emitting TRACE type Observations.
 package main
 
 import (

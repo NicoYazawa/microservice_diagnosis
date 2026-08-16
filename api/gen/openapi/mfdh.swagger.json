@@ -1,0 +1,1154 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "v1/observation.proto",
+    "version": "version not set"
+  },
+  "tags": [
+    {
+      "name": "Orchestrator",
+      "description": "Orchestrator user-plane service (REST endpoints per PLAN section 7)."
+    },
+    {
+      "name": "AgentService",
+      "description": "Agent control-plane service."
+    }
+  ],
+  "consumes": [
+    "application/json"
+  ],
+  "produces": [
+    "application/json"
+  ],
+  "paths": {
+    "/v1/agents": {
+      "get": {
+        "summary": "Agent health status (Consul).",
+        "operationId": "Orchestrator_ListAgents",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1ListAgentsResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "tags": [
+          "Orchestrator"
+        ]
+      }
+    },
+    "/v1/agents/{name}": {
+      "get": {
+        "summary": "Get the agent capability descriptor.",
+        "operationId": "AgentService_Describe",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1AgentDescriptor"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "AgentService"
+        ]
+      }
+    },
+    "/v1/agents/{name}/health": {
+      "get": {
+        "summary": "Agent health check.",
+        "operationId": "AgentService_Health",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1HealthCheckResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "AgentService"
+        ]
+      }
+    },
+    "/v1/agents/{name}/trigger": {
+      "post": {
+        "summary": "Manually trigger a diagnostic task (ops debugging side channel).",
+        "operationId": "AgentService_Trigger",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1TriggerAgentResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/AgentServiceTriggerBody"
+            }
+          }
+        ],
+        "tags": [
+          "AgentService"
+        ]
+      }
+    },
+    "/v1/sessions": {
+      "get": {
+        "summary": "List sessions (pagination + status / service / time window / keyword filters).",
+        "operationId": "Orchestrator_ListSessions",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1ListSessionsResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "page",
+            "description": "starts at 1",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "enum": [
+              "SESSION_STATUS_UNSPECIFIED",
+              "SESSION_STATUS_CREATED",
+              "SESSION_STATUS_COLLECTING",
+              "SESSION_STATUS_ANALYZING",
+              "SESSION_STATUS_RCA_DONE",
+              "SESSION_STATUS_FIX_PROPOSED",
+              "SESSION_STATUS_AWAITING_APPROVAL",
+              "SESSION_STATUS_FIX_EXECUTING",
+              "SESSION_STATUS_VERIFYING",
+              "SESSION_STATUS_RESOLVED",
+              "SESSION_STATUS_ROLLED_BACK",
+              "SESSION_STATUS_FIX_SUGGESTED",
+              "SESSION_STATUS_REJECTED",
+              "SESSION_STATUS_FAILED",
+              "SESSION_STATUS_IGNORED"
+            ],
+            "default": "SESSION_STATUS_UNSPECIFIED"
+          },
+          {
+            "name": "targetService",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "date-time"
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "date-time"
+          },
+          {
+            "name": "keyword",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "Orchestrator"
+        ]
+      },
+      "post": {
+        "summary": "Create a diagnostic session.",
+        "operationId": "Orchestrator_CreateSession",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1CreateSessionResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/v1CreateSessionRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Orchestrator"
+        ]
+      }
+    },
+    "/v1/sessions/{id}": {
+      "get": {
+        "summary": "Session detail: timeline + evidence + root cause + fixes.",
+        "operationId": "Orchestrator_GetSession",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1GetSessionResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "Orchestrator"
+        ]
+      }
+    },
+    "/v1/sessions/{id}/approvals/{approvalId}/decision": {
+      "post": {
+        "summary": "Manual approval callback.",
+        "operationId": "Orchestrator_DecisionApproval",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1DecisionApprovalResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "description": "session ID",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "approvalId",
+            "description": "approval request ID",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/OrchestratorDecisionApprovalBody"
+            }
+          }
+        ],
+        "tags": [
+          "Orchestrator"
+        ]
+      }
+    },
+    "/v1/sessions/{id}/ignore": {
+      "post": {
+        "summary": "Ignore (suppress alerts / tickets).",
+        "operationId": "Orchestrator_IgnoreSession",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1IgnoreSessionResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/OrchestratorIgnoreSessionBody"
+            }
+          }
+        ],
+        "tags": [
+          "Orchestrator"
+        ]
+      }
+    },
+    "/v1/sessions/{id}/report": {
+      "get": {
+        "summary": "Report content (format=markdown|pdf).",
+        "operationId": "Orchestrator_GetReport",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1GetReportResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "enum": [
+              "REPORT_FORMAT_UNSPECIFIED",
+              "REPORT_FORMAT_MARKDOWN",
+              "REPORT_FORMAT_PDF"
+            ],
+            "default": "REPORT_FORMAT_UNSPECIFIED"
+          }
+        ],
+        "tags": [
+          "Orchestrator"
+        ]
+      }
+    },
+    "/v1/sessions/{id}/report/download": {
+      "get": {
+        "summary": "Report download.",
+        "operationId": "Orchestrator_DownloadReport",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1DownloadReportResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "enum": [
+              "REPORT_FORMAT_UNSPECIFIED",
+              "REPORT_FORMAT_MARKDOWN",
+              "REPORT_FORMAT_PDF"
+            ],
+            "default": "REPORT_FORMAT_UNSPECIFIED"
+          }
+        ],
+        "tags": [
+          "Orchestrator"
+        ]
+      }
+    },
+    "/v1/sessions/{id}/retry": {
+      "post": {
+        "summary": "Retry diagnostics.",
+        "operationId": "Orchestrator_RetrySession",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1RetrySessionResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/OrchestratorRetrySessionBody"
+            }
+          }
+        ],
+        "tags": [
+          "Orchestrator"
+        ]
+      }
+    },
+    "/v1/sessions/{id}/start": {
+      "post": {
+        "summary": "Start diagnostics.",
+        "operationId": "Orchestrator_StartSession",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1StartSessionResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/OrchestratorStartSessionBody"
+            }
+          }
+        ],
+        "tags": [
+          "Orchestrator"
+        ]
+      }
+    }
+  },
+  "definitions": {
+    "AgentServiceTriggerBody": {
+      "type": "object",
+      "properties": {
+        "sessionId": {
+          "type": "string"
+        },
+        "observation": {
+          "$ref": "#/definitions/v1Observation"
+        }
+      },
+      "description": "Ops debugging: manually trigger one agent diagnostic task (production traffic\ngoes over Kafka; this is a control-plane side channel)."
+    },
+    "OrchestratorDecisionApprovalBody": {
+      "type": "object",
+      "properties": {
+        "decision": {
+          "$ref": "#/definitions/v1ApprovalDecision"
+        },
+        "decidedBy": {
+          "type": "string"
+        },
+        "comment": {
+          "type": "string"
+        }
+      }
+    },
+    "OrchestratorIgnoreSessionBody": {
+      "type": "object",
+      "properties": {
+        "reason": {
+          "type": "string"
+        }
+      }
+    },
+    "OrchestratorRetrySessionBody": {
+      "type": "object"
+    },
+    "OrchestratorStartSessionBody": {
+      "type": "object"
+    },
+    "protobufAny": {
+      "type": "object",
+      "properties": {
+        "@type": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": {}
+    },
+    "rpcStatus": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "message": {
+          "type": "string"
+        },
+        "details": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/protobufAny"
+          }
+        }
+      }
+    },
+    "v1AgentDescriptor": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/definitions/v1AgentKind"
+        },
+        "version": {
+          "type": "string"
+        },
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "supportedEvidenceTypes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/v1EvidenceType"
+          }
+        },
+        "endpoints": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "control-plane endpoints: health / grpc / ..."
+        }
+      },
+      "description": "Agent capability descriptor: used for service discovery and capability negotiation."
+    },
+    "v1AgentInfo": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "agent-log / agent-metric / ..."
+        },
+        "kind": {
+          "type": "string",
+          "title": "log / metric / trace / rca / fix"
+        },
+        "version": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "title": "healthy / degraded / unhealthy"
+        },
+        "endpoint": {
+          "type": "string"
+        },
+        "lastHeartbeat": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "description": "Agent health info (source: Consul service discovery)."
+    },
+    "v1AgentKind": {
+      "type": "string",
+      "enum": [
+        "AGENT_KIND_UNSPECIFIED",
+        "AGENT_KIND_LOG",
+        "AGENT_KIND_METRIC",
+        "AGENT_KIND_TRACE",
+        "AGENT_KIND_RCA",
+        "AGENT_KIND_FIX"
+      ],
+      "default": "AGENT_KIND_UNSPECIFIED",
+      "description": "Logical agent type."
+    },
+    "v1AgentStatus": {
+      "type": "string",
+      "enum": [
+        "AGENT_STATUS_UNSPECIFIED",
+        "AGENT_STATUS_HEALTHY",
+        "AGENT_STATUS_DEGRADED",
+        "AGENT_STATUS_UNHEALTHY"
+      ],
+      "default": "AGENT_STATUS_UNSPECIFIED",
+      "description": "Agent health status."
+    },
+    "v1ApprovalDecision": {
+      "type": "string",
+      "enum": [
+        "APPROVAL_DECISION_UNSPECIFIED",
+        "APPROVAL_DECISION_APPROVE",
+        "APPROVAL_DECISION_REJECT"
+      ],
+      "default": "APPROVAL_DECISION_UNSPECIFIED",
+      "description": "Approval decision."
+    },
+    "v1CreateSessionRequest": {
+      "type": "object",
+      "properties": {
+        "targetService": {
+          "type": "string"
+        },
+        "alert": {
+          "type": "string"
+        },
+        "labels": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "v1CreateSessionResponse": {
+      "type": "object",
+      "properties": {
+        "session": {
+          "$ref": "#/definitions/v1Session"
+        }
+      }
+    },
+    "v1DecisionApprovalResponse": {
+      "type": "object",
+      "properties": {
+        "approvalId": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "title": "APPROVED / REJECTED"
+        }
+      }
+    },
+    "v1DownloadReportResponse": {
+      "type": "object",
+      "properties": {
+        "contentType": {
+          "type": "string"
+        },
+        "content": {
+          "type": "string",
+          "format": "byte"
+        }
+      }
+    },
+    "v1EvidenceType": {
+      "type": "string",
+      "enum": [
+        "EVIDENCE_TYPE_UNSPECIFIED",
+        "EVIDENCE_TYPE_LOG",
+        "EVIDENCE_TYPE_METRIC",
+        "EVIDENCE_TYPE_TRACE",
+        "EVIDENCE_TYPE_ALERT",
+        "EVIDENCE_TYPE_RCA_RESULT",
+        "EVIDENCE_TYPE_FIX_ACTION"
+      ],
+      "default": "EVIDENCE_TYPE_UNSPECIFIED",
+      "description": "Evidence category."
+    },
+    "v1FixSummary": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "seq": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "actionType": {
+          "type": "string",
+          "description": "restart_pod / scale_up / switch_master / ..."
+        },
+        "target": {
+          "type": "string"
+        },
+        "risk": {
+          "type": "string",
+          "title": "LOW / MEDIUM / HIGH"
+        },
+        "status": {
+          "type": "string",
+          "title": "NOT_STARTED / RUNNING / SUCCEEDED / FAILED / ROLLED_BACK"
+        },
+        "rollbackPlan": {
+          "type": "string"
+        }
+      },
+      "description": "Fix action summary."
+    },
+    "v1GetReportResponse": {
+      "type": "object",
+      "properties": {
+        "format": {
+          "$ref": "#/definitions/v1ReportFormat"
+        },
+        "content": {
+          "type": "string",
+          "title": "Markdown text content"
+        },
+        "downloadUrl": {
+          "type": "string",
+          "title": "report download URL"
+        }
+      }
+    },
+    "v1GetSessionResponse": {
+      "type": "object",
+      "properties": {
+        "detail": {
+          "$ref": "#/definitions/v1SessionDetail"
+        }
+      }
+    },
+    "v1HealthCheckResponse": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/definitions/v1AgentStatus"
+        },
+        "lastHeartbeat": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "latencyMs": {
+          "type": "string",
+          "format": "int64"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    },
+    "v1IgnoreSessionResponse": {
+      "type": "object",
+      "properties": {
+        "session": {
+          "$ref": "#/definitions/v1Session"
+        }
+      }
+    },
+    "v1ListAgentsResponse": {
+      "type": "object",
+      "properties": {
+        "agents": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1AgentInfo"
+          }
+        }
+      }
+    },
+    "v1ListSessionsResponse": {
+      "type": "object",
+      "properties": {
+        "sessions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1Session"
+          }
+        },
+        "total": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "page": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "pageSize": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    },
+    "v1Observation": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "title": "unique evidence ID (UUID/snowflake), idempotent dedup and primary key"
+        },
+        "sessionId": {
+          "type": "string",
+          "title": "related diagnostic session ID"
+        },
+        "source": {
+          "type": "string",
+          "title": "logical name of the producing agent (agent-log / agent-rca / ...)"
+        },
+        "type": {
+          "$ref": "#/definitions/v1EvidenceType",
+          "title": "evidence category"
+        },
+        "subType": {
+          "type": "string",
+          "title": "evidence sub-type (log_pattern / metric_anomaly / trace_bottleneck / ...)"
+        },
+        "confidence": {
+          "type": "number",
+          "format": "double",
+          "title": "confidence in [0.0, 1.0]"
+        },
+        "severity": {
+          "$ref": "#/definitions/v1Severity",
+          "title": "severity level"
+        },
+        "targetService": {
+          "type": "string",
+          "title": "target service name"
+        },
+        "correlations": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "correlation identifiers: trace_id / span_id / request_id"
+        },
+        "detailJson": {
+          "type": "string",
+          "title": "concrete evidence JSON string (fidelity payload)"
+        },
+        "labels": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "static labels: env / region / pod / host"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "title": "evidence production time"
+        },
+        "schemaVersion": {
+          "type": "string",
+          "format": "int64",
+          "title": "contract version (evolution compatibility check)"
+        }
+      },
+      "description": "Observation: standardized evidence (PLAN section 4.1, 13 fields)."
+    },
+    "v1ReportFormat": {
+      "type": "string",
+      "enum": [
+        "REPORT_FORMAT_UNSPECIFIED",
+        "REPORT_FORMAT_MARKDOWN",
+        "REPORT_FORMAT_PDF"
+      ],
+      "default": "REPORT_FORMAT_UNSPECIFIED",
+      "description": "Report format."
+    },
+    "v1RetrySessionResponse": {
+      "type": "object",
+      "properties": {
+        "session": {
+          "$ref": "#/definitions/v1Session"
+        }
+      }
+    },
+    "v1RootCause": {
+      "type": "object",
+      "properties": {
+        "pattern": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "confidence": {
+          "type": "number",
+          "format": "double"
+        },
+        "evidenceIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "description": "Root cause conclusion."
+    },
+    "v1Session": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "targetService": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/definitions/v1SessionStatus"
+        },
+        "alert": {
+          "type": "string",
+          "title": "triggering alert (optional; ALERT auto-trigger is an enhancement)"
+        },
+        "labels": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "static labels: env / region / ..."
+        },
+        "retryCount": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "description": "Session summary (used by list / create responses)."
+    },
+    "v1SessionDetail": {
+      "type": "object",
+      "properties": {
+        "session": {
+          "$ref": "#/definitions/v1Session"
+        },
+        "timeline": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1TimelineEvent"
+          }
+        },
+        "observations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1Observation"
+          }
+        },
+        "rootCause": {
+          "$ref": "#/definitions/v1RootCause"
+        },
+        "fixes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1FixSummary"
+          }
+        }
+      },
+      "description": "Session detail: timeline + evidence + root cause + fixes."
+    },
+    "v1SessionStatus": {
+      "type": "string",
+      "enum": [
+        "SESSION_STATUS_UNSPECIFIED",
+        "SESSION_STATUS_CREATED",
+        "SESSION_STATUS_COLLECTING",
+        "SESSION_STATUS_ANALYZING",
+        "SESSION_STATUS_RCA_DONE",
+        "SESSION_STATUS_FIX_PROPOSED",
+        "SESSION_STATUS_AWAITING_APPROVAL",
+        "SESSION_STATUS_FIX_EXECUTING",
+        "SESSION_STATUS_VERIFYING",
+        "SESSION_STATUS_RESOLVED",
+        "SESSION_STATUS_ROLLED_BACK",
+        "SESSION_STATUS_FIX_SUGGESTED",
+        "SESSION_STATUS_REJECTED",
+        "SESSION_STATUS_FAILED",
+        "SESSION_STATUS_IGNORED"
+      ],
+      "default": "SESSION_STATUS_UNSPECIFIED",
+      "description": "Diagnostic session status, consistent with the state machine design (PLAN 5.1)."
+    },
+    "v1Severity": {
+      "type": "string",
+      "enum": [
+        "SEVERITY_UNSPECIFIED",
+        "SEVERITY_DEBUG",
+        "SEVERITY_INFO",
+        "SEVERITY_WARN",
+        "SEVERITY_ERROR",
+        "SEVERITY_FATAL"
+      ],
+      "default": "SEVERITY_UNSPECIFIED",
+      "description": "Severity level."
+    },
+    "v1StartSessionResponse": {
+      "type": "object",
+      "properties": {
+        "session": {
+          "$ref": "#/definitions/v1Session"
+        }
+      }
+    },
+    "v1TimelineEvent": {
+      "type": "object",
+      "properties": {
+        "eventType": {
+          "type": "string",
+          "description": "session_created / observation_collected / ..."
+        },
+        "source": {
+          "type": "string",
+          "description": "orchestrator / agent-log / ..."
+        },
+        "message": {
+          "type": "string"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "description": "Timeline event."
+    },
+    "v1TriggerAgentResponse": {
+      "type": "object",
+      "properties": {
+        "accepted": {
+          "type": "boolean"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

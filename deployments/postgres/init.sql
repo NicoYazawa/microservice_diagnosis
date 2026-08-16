@@ -1,4 +1,4 @@
--- mfdh PostgreSQL 初始化脚本（M0）
--- 会话 / 修复 / 审批 / 知识库 / webhook 表将在 M3 里程碑创建。
--- 当前仅创建扩展，便于后续使用 UUID 主键。
+-- mfdh PostgreSQL init script (M0)
+-- Session / fix / approval / knowledge base / webhook tables will be created in the M3 milestone.
+-- Only extensions are created for now, so UUID primary keys can be used later.
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";

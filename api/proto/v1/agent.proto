@@ -1,0 +1,97 @@
+// agent.proto - Agent control-plane contract.
+//
+// Note: the agent data plane (diagnostic evidence flow) uses Kafka for
+// asynchronous communication. This contract only exposes the control plane
+// (ops / health / capability negotiation / debug manual trigger) and
+// complements Consul-based service discovery.
+syntax = "proto3";
+
+package mfdh.agent.v1;
+
+import "google/api/annotations.proto";
+import "google/protobuf/timestamp.proto";
+import "v1/observation.proto";
+
+option go_package = "github.com/NicoYazawa/microservice_diagnosis/api/gen/agent/v1;agentv1";
+
+// Logical agent type.
+enum AgentKind {
+  AGENT_KIND_UNSPECIFIED = 0;
+  AGENT_KIND_LOG         = 1;
+  AGENT_KIND_METRIC      = 2;
+  AGENT_KIND_TRACE       = 3;
+  AGENT_KIND_RCA         = 4;
+  AGENT_KIND_FIX         = 5;
+}
+
+// Agent health status.
+enum AgentStatus {
+  AGENT_STATUS_UNSPECIFIED = 0;
+  AGENT_STATUS_HEALTHY     = 1;
+  AGENT_STATUS_DEGRADED    = 2;
+  AGENT_STATUS_UNHEALTHY   = 3;
+}
+
+// Agent capability descriptor: used for service discovery and capability negotiation.
+message AgentDescriptor {
+  string name = 1;
+  AgentKind kind = 2;
+  string version = 3;
+  repeated string capabilities = 4;
+  repeated observation.v1.EvidenceType supported_evidence_types = 5;
+  map<string, string> endpoints = 6;        // control-plane endpoints: health / grpc / ...
+}
+
+message DescribeAgentRequest {
+  string name = 1;
+}
+
+message HealthCheckRequest {
+  string name = 1;
+}
+
+message HealthCheckResponse {
+  string name = 1;
+  AgentStatus status = 2;
+  google.protobuf.Timestamp last_heartbeat = 3;
+  int64 latency_ms = 4;
+  string message = 5;
+}
+
+// Ops debugging: manually trigger one agent diagnostic task (production traffic
+// goes over Kafka; this is a control-plane side channel).
+message TriggerAgentRequest {
+  string name = 1;
+  string session_id = 2;
+  observation.v1.Observation observation = 3;
+}
+
+message TriggerAgentResponse {
+  bool accepted = 1;
+  string message = 2;
+}
+
+// Agent control-plane service.
+service AgentService {
+  // Get the agent capability descriptor.
+  rpc Describe(DescribeAgentRequest) returns (AgentDescriptor) {
+    option (google.api.http) = {
+      get: "/v1/agents/{name}"
+    };
+  }
+
+  // Agent health check.
+  rpc Health(HealthCheckRequest) returns (HealthCheckResponse) {
+    option (google.api.http) = {
+      get: "/v1/agents/{name}/health"
+    };
+  }
+
+  // Manually trigger a diagnostic task (ops debugging side channel).
+  rpc Trigger(TriggerAgentRequest) returns (TriggerAgentResponse) {
+    option (google.api.http) = {
+      post: "/v1/agents/{name}/trigger"
+      body: "*"
+    };
+  }
+}

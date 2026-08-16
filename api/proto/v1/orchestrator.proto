@@ -1,0 +1,285 @@
+// orchestrator.proto - Orchestrator user-plane contract.
+//
+// One proto serves both gRPC and REST (REST endpoints generated via gRPC-Gateway).
+// REST endpoints fully align with PLAN section 7: session create / list / detail /
+// start / retry / ignore, approval callbacks, reports, and agent health.
+syntax = "proto3";
+
+package mfdh.orchestrator.v1;
+
+import "google/api/annotations.proto";
+import "google/protobuf/timestamp.proto";
+import "v1/observation.proto";
+
+option go_package = "github.com/NicoYazawa/microservice_diagnosis/api/gen/orchestrator/v1;orchestratorv1";
+
+// Diagnostic session status, consistent with the state machine design (PLAN 5.1).
+enum SessionStatus {
+  SESSION_STATUS_UNSPECIFIED        = 0;
+  SESSION_STATUS_CREATED            = 1;
+  SESSION_STATUS_COLLECTING         = 2;
+  SESSION_STATUS_ANALYZING          = 3;
+  SESSION_STATUS_RCA_DONE           = 4;
+  SESSION_STATUS_FIX_PROPOSED       = 5;
+  SESSION_STATUS_AWAITING_APPROVAL  = 6;
+  SESSION_STATUS_FIX_EXECUTING      = 7;
+  SESSION_STATUS_VERIFYING          = 8;
+  SESSION_STATUS_RESOLVED           = 9;
+  SESSION_STATUS_ROLLED_BACK        = 10;
+  SESSION_STATUS_FIX_SUGGESTED      = 11;
+  SESSION_STATUS_REJECTED           = 12;
+  SESSION_STATUS_FAILED             = 13;
+  SESSION_STATUS_IGNORED            = 14;
+}
+
+// Report format.
+enum ReportFormat {
+  REPORT_FORMAT_UNSPECIFIED = 0;
+  REPORT_FORMAT_MARKDOWN    = 1;
+  REPORT_FORMAT_PDF         = 2;
+}
+
+// Approval decision.
+enum ApprovalDecision {
+  APPROVAL_DECISION_UNSPECIFIED = 0;
+  APPROVAL_DECISION_APPROVE     = 1;
+  APPROVAL_DECISION_REJECT      = 2;
+}
+
+// Session summary (used by list / create responses).
+message Session {
+  string id = 1;
+  string target_service = 2;
+  SessionStatus status = 3;
+  string alert = 4;                         // triggering alert (optional; ALERT auto-trigger is an enhancement)
+  map<string, string> labels = 5;           // static labels: env / region / ...
+  int32 retry_count = 6;
+  google.protobuf.Timestamp created_at = 7;
+  google.protobuf.Timestamp updated_at = 8;
+}
+
+// Timeline event.
+message TimelineEvent {
+  string event_type = 1;                    // session_created / observation_collected / ...
+  string source = 2;                        // orchestrator / agent-log / ...
+  string message = 3;
+  google.protobuf.Timestamp timestamp = 4;
+}
+
+// Root cause conclusion.
+message RootCause {
+  string pattern = 1;
+  string summary = 2;
+  double confidence = 3;
+  repeated string evidence_ids = 4;
+}
+
+// Fix action summary.
+message FixSummary {
+  string id = 1;
+  int32 seq = 2;
+  string action_type = 3;                   // restart_pod / scale_up / switch_master / ...
+  string target = 4;
+  string risk = 5;                          // LOW / MEDIUM / HIGH
+  string status = 6;                        // NOT_STARTED / RUNNING / SUCCEEDED / FAILED / ROLLED_BACK
+  string rollback_plan = 7;
+}
+
+// Session detail: timeline + evidence + root cause + fixes.
+message SessionDetail {
+  Session session = 1;
+  repeated TimelineEvent timeline = 2;
+  repeated observation.v1.Observation observations = 3;
+  RootCause root_cause = 4;
+  repeated FixSummary fixes = 5;
+}
+
+message CreateSessionRequest {
+  string target_service = 1;
+  string alert = 2;
+  map<string, string> labels = 3;
+}
+
+message CreateSessionResponse {
+  Session session = 1;
+}
+
+message ListSessionsRequest {
+  int32 page = 1;                           // starts at 1
+  int32 page_size = 2;
+  SessionStatus status = 3;
+  string target_service = 4;
+  google.protobuf.Timestamp from = 5;
+  google.protobuf.Timestamp to = 6;
+  string keyword = 7;
+}
+
+message ListSessionsResponse {
+  repeated Session sessions = 1;
+  int32 total = 2;
+  int32 page = 3;
+  int32 page_size = 4;
+}
+
+message GetSessionRequest {
+  string id = 1;
+}
+
+message GetSessionResponse {
+  SessionDetail detail = 1;
+}
+
+message StartSessionRequest {
+  string id = 1;
+}
+
+message StartSessionResponse {
+  Session session = 1;
+}
+
+message RetrySessionRequest {
+  string id = 1;
+}
+
+message RetrySessionResponse {
+  Session session = 1;
+}
+
+message IgnoreSessionRequest {
+  string id = 1;
+  string reason = 2;
+}
+
+message IgnoreSessionResponse {
+  Session session = 1;
+}
+
+message DecisionApprovalRequest {
+  string id = 1;                            // session ID
+  string approval_id = 2;                   // approval request ID
+  ApprovalDecision decision = 3;
+  string decided_by = 4;
+  string comment = 5;
+}
+
+message DecisionApprovalResponse {
+  string approval_id = 1;
+  string status = 2;                        // APPROVED / REJECTED
+}
+
+message GetReportRequest {
+  string id = 1;
+  ReportFormat format = 2;
+}
+
+message GetReportResponse {
+  ReportFormat format = 1;
+  string content = 2;                       // Markdown text content
+  string download_url = 3;                  // report download URL
+}
+
+message DownloadReportRequest {
+  string id = 1;
+  ReportFormat format = 2;
+}
+
+message DownloadReportResponse {
+  string content_type = 1;
+  bytes content = 2;
+}
+
+message ListAgentsRequest {
+}
+
+message ListAgentsResponse {
+  repeated AgentInfo agents = 1;
+}
+
+// Agent health info (source: Consul service discovery).
+message AgentInfo {
+  string name = 1;                          // agent-log / agent-metric / ...
+  string kind = 2;                          // log / metric / trace / rca / fix
+  string version = 3;
+  string status = 4;                        // healthy / degraded / unhealthy
+  string endpoint = 5;
+  google.protobuf.Timestamp last_heartbeat = 6;
+}
+
+// Orchestrator user-plane service (REST endpoints per PLAN section 7).
+service Orchestrator {
+  // Create a diagnostic session.
+  rpc CreateSession(CreateSessionRequest) returns (CreateSessionResponse) {
+    option (google.api.http) = {
+      post: "/v1/sessions"
+      body: "*"
+    };
+  }
+
+  // List sessions (pagination + status / service / time window / keyword filters).
+  rpc ListSessions(ListSessionsRequest) returns (ListSessionsResponse) {
+    option (google.api.http) = {
+      get: "/v1/sessions"
+    };
+  }
+
+  // Session detail: timeline + evidence + root cause + fixes.
+  rpc GetSession(GetSessionRequest) returns (GetSessionResponse) {
+    option (google.api.http) = {
+      get: "/v1/sessions/{id}"
+    };
+  }
+
+  // Start diagnostics.
+  rpc StartSession(StartSessionRequest) returns (StartSessionResponse) {
+    option (google.api.http) = {
+      post: "/v1/sessions/{id}/start"
+      body: "*"
+    };
+  }
+
+  // Retry diagnostics.
+  rpc RetrySession(RetrySessionRequest) returns (RetrySessionResponse) {
+    option (google.api.http) = {
+      post: "/v1/sessions/{id}/retry"
+      body: "*"
+    };
+  }
+
+  // Ignore (suppress alerts / tickets).
+  rpc IgnoreSession(IgnoreSessionRequest) returns (IgnoreSessionResponse) {
+    option (google.api.http) = {
+      post: "/v1/sessions/{id}/ignore"
+      body: "*"
+    };
+  }
+
+  // Manual approval callback.
+  rpc DecisionApproval(DecisionApprovalRequest) returns (DecisionApprovalResponse) {
+    option (google.api.http) = {
+      post: "/v1/sessions/{id}/approvals/{approval_id}/decision"
+      body: "*"
+    };
+  }
+
+  // Report content (format=markdown|pdf).
+  rpc GetReport(GetReportRequest) returns (GetReportResponse) {
+    option (google.api.http) = {
+      get: "/v1/sessions/{id}/report"
+    };
+  }
+
+  // Report download.
+  rpc DownloadReport(DownloadReportRequest) returns (DownloadReportResponse) {
+    option (google.api.http) = {
+      get: "/v1/sessions/{id}/report/download"
+    };
+  }
+
+  // Agent health status (Consul).
+  rpc ListAgents(ListAgentsRequest) returns (ListAgentsResponse) {
+    option (google.api.http) = {
+      get: "/v1/agents"
+    };
+  }
+}
+

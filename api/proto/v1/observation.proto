@@ -1,0 +1,50 @@
+// observation.proto - unified evidence model (Observation).
+//
+// It is the single data contract used for all interactions between agents
+// (PLAN section 4). Field definitions were finalized on 2026-08-16 with 13
+// fields; evolution is gated by the schema_version field.
+syntax = "proto3";
+
+package observation.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/NicoYazawa/microservice_diagnosis/api/gen/observation/v1;observationv1";
+
+// Evidence category.
+enum EvidenceType {
+  EVIDENCE_TYPE_UNSPECIFIED = 0;
+  EVIDENCE_TYPE_LOG         = 1;
+  EVIDENCE_TYPE_METRIC      = 2;
+  EVIDENCE_TYPE_TRACE       = 3;
+  EVIDENCE_TYPE_ALERT       = 4;
+  EVIDENCE_TYPE_RCA_RESULT  = 5;
+  EVIDENCE_TYPE_FIX_ACTION  = 6;
+}
+
+// Severity level.
+enum Severity {
+  SEVERITY_UNSPECIFIED = 0;
+  SEVERITY_DEBUG       = 1;
+  SEVERITY_INFO        = 2;
+  SEVERITY_WARN        = 3;
+  SEVERITY_ERROR       = 4;
+  SEVERITY_FATAL       = 5;
+}
+
+// Observation: standardized evidence (PLAN section 4.1, 13 fields).
+message Observation {
+  string id = 1;                            // unique evidence ID (UUID/snowflake), idempotent dedup and primary key
+  string session_id = 2;                    // related diagnostic session ID
+  string source = 3;                        // logical name of the producing agent (agent-log / agent-rca / ...)
+  EvidenceType type = 4;                    // evidence category
+  string sub_type = 5;                      // evidence sub-type (log_pattern / metric_anomaly / trace_bottleneck / ...)
+  double confidence = 6;                    // confidence in [0.0, 1.0]
+  Severity severity = 7;                    // severity level
+  string target_service = 8;                // target service name
+  map<string, string> correlations = 9;     // correlation identifiers: trace_id / span_id / request_id
+  string detail_json = 10;                  // concrete evidence JSON string (fidelity payload)
+  map<string, string> labels = 11;          // static labels: env / region / pod / host
+  google.protobuf.Timestamp timestamp = 12; // evidence production time
+  int64 schema_version = 13;                // contract version (evolution compatibility check)
+}

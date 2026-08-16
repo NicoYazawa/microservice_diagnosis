@@ -1,4 +1,5 @@
-// agent-fix 服务入口：基于 RCA 结果查询知识库生成修复建议，产出 FIX_ACTION 类型 Observation。
+// agent-fix service entrypoint: queries the knowledge base based on RCA results
+// to generate fix suggestions, emitting FIX_ACTION type Observations.
 package main
 
 import (
