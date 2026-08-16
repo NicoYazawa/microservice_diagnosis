@@ -1,0 +1,63 @@
+# CodeRabbit AI 代码评审配置
+# 官方文档：https://docs.coderabbit.ai/configuration/
+
+# 评审评论使用语言
+language: zh-CN
+
+reviews:
+  # 评审风格：chill（宽松）/ assertive（严格）
+  profile: assertive
+  # 允许 CodeRabbit 正式要求变更（配合分支规则集将 CodeRabbit 设为 required reviewer 生效）
+  request_changes_workflow: true
+  # 每个 PR 生成高层级变更总结
+  high_level_summary: true
+  # 关闭彩蛋诗，保持专业
+  poem: false
+  # 在 PR 上展示评审状态徽章
+  review_status: true
+  # 折叠 walkthrough 列表
+  collapse_walkthrough: true
+
+  auto_review:
+    enabled: true
+    # 草稿 PR 不自动评审，转为 ready 后再评审
+    drafts: false
+    # 对比基线分支
+    base: main
+
+  # 忽略路径（glob；! 前缀表示排除，不参与评审）
+  path_filters:
+    - "!bin/**"
+    - "!.git/**"
+    - "!**/*.sum"
+    - "!**/*.lock"
+
+  # 按路径附加评审指令
+  path_instructions:
+    - path: "**/*.go"
+      instructions: |
+        请按 Go 最佳实践评审：
+        1. 错误处理：优先使用 errors.Is / errors.As，避免吞错误、裸 panic。
+        2. 并发安全：检查 goroutine 生命周期、channel 关闭、共享状态竞态。
+        3. 资源释放：连接池 / 文件句柄 / HTTP Response Body 是否及时 Close。
+        4. context 使用：是否遵守超时与取消传播。
+        5. 日志：使用 slog 结构化字段，不拼接日志文本。
+    - path: "api/proto/**"
+      instructions: |
+        检查 proto 契约：
+        1. 字段编号保持向后兼容（禁止复用已删除的编号）。
+        2. enum 首值必须是 UNSPECIFIED = 0。
+        3. google.api.http 注解是否正确映射 REST 语义。
+    - path: "deployments/**"
+      instructions: |
+        检查部署配置：
+        1. 镜像版本是否固定、是否为最新稳定版。
+        2. 健康检查命令与端口是否正确。
+        3. 是否存在硬编码密钥（应改为 Secret 引用）。
+    - path: "internal/**"
+      instructions: |
+        遵守项目分层约定：config / logger / server 为基础设施层；
+        bus / store / workflow / agent 等业务包不得反向依赖上层。
+
+chat:
+  auto_reply: true
