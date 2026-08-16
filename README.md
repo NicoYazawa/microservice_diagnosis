@@ -61,6 +61,15 @@ go run ./cmd/genproto          # or: make proto-gen
 - OpenAPI: `api/gen/openapi/mfdh.swagger.json` (merged spec, importable into Swagger UI).
 - Contract tests: `go test ./internal/observation/ -cover` (round-trip / schema_version / illegal field rejection).
 
+## Platform Notes
+
+- **Go commands** (`go build ./...`, `go vet ./...`, `go test ./...`, `go run ./cmd/genproto`) work on Windows / macOS / Linux out of the box.
+- **Make targets** require GNU make + a bash shell. On Windows, use Git Bash or WSL, or run the underlying commands directly:
+  - `make build` -> `go build ./cmd/...`
+  - `make proto-gen` -> `go run ./cmd/genproto`
+  - `make up` / `down` / `ps` / `logs` -> `docker compose -f deployments/docker-compose.yml ...`
+- **Line endings** are normalized to LF via `.gitattributes`; keep your editor set to LF to avoid spurious diffs.
+
 ## Directory Structure
 
 See [PLAN.md](./PLAN.md) section 3.
