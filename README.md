@@ -2,6 +2,8 @@
 
 事件驱动的微服务诊断平台：**诊断 → 根因 → 修复建议 →（高风险人工审批）→ 工单 / 通知 → 修复验证**。
 
+![CodeRabbit Pull Request Reviews](https://img.shields.io/coderabbit/prs/github/NicoYazawa/microservice_diagnosis?utm_source=oss&utm_medium=github&utm_campaign=NicoYazawa%2Fmicroservice_diagnosis&labelColor=171717&color=FF570A&link=https%3A%2F%2Fcoderabbit.ai&label=CodeRabbit+Reviews)
+
 ## 技术栈
 
 Go 1.25+ · gRPC · Kafka · ClickHouse · PostgreSQL · Redis · Consul · Prometheus · Gin + gRPC-Gateway
