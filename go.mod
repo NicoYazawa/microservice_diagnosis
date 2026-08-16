@@ -1,4 +1,4 @@
-module github.com/microservice-diagnosis/diagnosis-hub
+module github.com/NicoYazawa/microservice_diagnosis
 
 go 1.25
 

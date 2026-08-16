@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/microservice-diagnosis/diagnosis-hub/internal/bootstrap"
+	"github.com/NicoYazawa/microservice_diagnosis/internal/bootstrap"
 )
 
 func main() {

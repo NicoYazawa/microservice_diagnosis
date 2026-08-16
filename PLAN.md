@@ -3,7 +3,7 @@
 > 版本：v1.0 定稿
 > 拟定日期：2026-08-16
 > 状态：已评审确认，按里程碑执行
-> 模块路径：`github.com/microservice-diagnosis/diagnosis-hub`
+> 模块路径：`github.com/NicoYazawa/microservice_diagnosis`
 
 ## 1. 项目概述
 
@@ -111,7 +111,7 @@ microservice_diagnosis/
 ```proto
 syntax = "proto3";
 package observation.v1;
-option go_package = "github.com/microservice-diagnosis/diagnosis-hub/api/gen/observation/v1;observationv1";
+option go_package = "github.com/NicoYazawa/microservice_diagnosis/api/gen/observation/v1;observationv1";
 
 import "google/protobuf/timestamp.proto";
 

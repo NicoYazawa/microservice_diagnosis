@@ -12,9 +12,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/microservice-diagnosis/diagnosis-hub/internal/config"
-	"github.com/microservice-diagnosis/diagnosis-hub/internal/logger"
-	"github.com/microservice-diagnosis/diagnosis-hub/internal/server"
+	"github.com/NicoYazawa/microservice_diagnosis/internal/config"
+	"github.com/NicoYazawa/microservice_diagnosis/internal/logger"
+	"github.com/NicoYazawa/microservice_diagnosis/internal/server"
 )
 
 // Options 预留：后续里程碑在此注入 bus / store / workflow 等依赖。
