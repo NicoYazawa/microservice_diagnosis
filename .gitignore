@@ -12,6 +12,9 @@ bin/
 data/
 tmp/
 
+# Local scripts (not versioned)
+scripts/
+
 # IDE / OS
 .idea/
 .vscode/
