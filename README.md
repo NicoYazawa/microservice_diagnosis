@@ -61,6 +61,37 @@ go run ./cmd/genproto          # or: make proto-gen
 - OpenAPI: `api/gen/openapi/mfdh.swagger.json` (merged spec, importable into Swagger UI).
 - Contract tests: `go test ./internal/observation/ -cover` (round-trip / schema_version / illegal field rejection).
 
+### 4. Kafka message bus (M2)
+
+`internal/bus/` wraps `segmentio/kafka-go` into three small contracts used by every service:
+
+| API | Purpose |
+|---|---|
+| `bus.Producer.Publish(ctx, msg)` | Publish evidence / commands (at-least-once, key-hash partition routing) |
+| `bus.Consumer.Consume(ctx, handler)` | Consume from a per-agent consumer group; offsets commit only after the handler succeeds |
+| `bus.Replayer.Replay(ctx, opts)` | Re-read a topic from the earliest (or any) offset without touching consumer groups |
+
+- Topics are namespaced: `mfdh.observations` / `mfdh.commands` / `mfdh.events` / `mfdh.dlq`.
+- Consumer groups follow `mfdh-<service>-<topic>` so each agent scales independently.
+- The M1 `Observation` contract rides the bus via `bus.ObservationMessage` / `bus.DecodeObservation` (protobuf binary + routing headers).
+- Broker address is configurable per service: `bus.brokers` in each `configs/*.yaml` (default `localhost:29092`).
+
+```go
+producer, _ := bus.NewProducer(bus.Config{Brokers: cfg.Bus.Brokers})
+msg, _ := bus.ObservationMessage(obs)
+_ = producer.Publish(ctx, msg)
+
+consumer, _ := bus.NewConsumer(bus.Config{Brokers: cfg.Bus.Brokers},
+    bus.ConsumerConfig{Topic: bus.TopicObservations, GroupID: bus.GroupID("agent-log", bus.TopicObservations)})
+_ = consumer.Consume(ctx, func(ctx context.Context, m bus.Message) error {
+    o, err := bus.DecodeObservation(m) // -> *observationv1.Observation
+    return err
+})
+```
+
+- Unit tests (in-memory broker double): `go test ./internal/bus/ -cover`
+- Integration tests (real Kafka, skipped when unreachable): `make test-integration`
+
 ## Platform Notes
 
 - **Go commands** (`go build ./...`, `go vet ./...`, `go test ./...`, `go run ./cmd/genproto`) work on Windows / macOS / Linux out of the box.
@@ -76,7 +107,7 @@ See [PLAN.md](./PLAN.md) section 3.
 
 ## Milestone Progress
 
-See [PLAN.md](./PLAN.md) section 10. Currently completed: **M0 (project skeleton + infrastructure + 6 service entrypoints) + M1 (contracts: 3 protos + generation pipeline + round-trip contract tests)**.
+See [PLAN.md](./PLAN.md) section 10. Currently completed: **M0 (project skeleton + infrastructure + 6 service entrypoints) + M1 (contracts: 3 protos + generation pipeline + round-trip contract tests) + M2 (Kafka message bus: Producer / Consumer / Replay with unit tests + real-broker replay use case)**.
 
 ## Language Policy
 

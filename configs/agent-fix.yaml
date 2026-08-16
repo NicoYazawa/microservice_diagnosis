@@ -4,3 +4,6 @@ service:
 log:
   level: info
   format: json
+bus:
+  brokers:
+    - localhost:29092

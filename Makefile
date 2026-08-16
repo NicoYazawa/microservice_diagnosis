@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-.PHONY: build vet test tidy up down ps logs run-orchestrator run-agent-log proto-gen
+.PHONY: build vet test test-integration tidy up down ps logs run-orchestrator run-agent-log proto-gen
 
 build:
 	go build ./cmd/...
@@ -10,6 +10,9 @@ vet:
 
 test:
 	go test ./...
+
+test-integration:
+	go test -tags=integration ./internal/bus/ -count=1 -v
 
 tidy:
 	go mod tidy

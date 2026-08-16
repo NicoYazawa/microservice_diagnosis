@@ -20,10 +20,16 @@ type Log struct {
 	Format string `mapstructure:"format"` // json / text
 }
 
+// Bus holds the Kafka message bus configuration (M2).
+type Bus struct {
+	Brokers []string `mapstructure:"brokers"`
+}
+
 // Config holds the common service configuration. Future milestones will extend sub-structures (bus/store/workflow/llm etc.).
 type Config struct {
 	Service Service `mapstructure:"service"`
 	Log     Log     `mapstructure:"log"`
+	Bus     Bus     `mapstructure:"bus"`
 }
 
 // Load loads YAML configuration from path.
@@ -35,6 +41,7 @@ func Load(path string) (*Config, error) {
 	v.SetDefault("service.http_addr", ":8080")
 	v.SetDefault("log.level", "info")
 	v.SetDefault("log.format", "json")
+	v.SetDefault("bus.brokers", []string{"localhost:29092"})
 
 	v.SetEnvPrefix("MFDH")
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
