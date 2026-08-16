@@ -33,4 +33,4 @@ run-agent-log:
 	go run ./cmd/agent-log -config configs/agent-log.yaml
 
 proto-gen:
-	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/gen-proto.ps1
+	go run ./cmd/genproto

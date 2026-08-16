@@ -51,11 +51,12 @@ Health check: `curl http://localhost:8080/healthz` -> `ok`
 
 Contracts live in `api/proto/v1/` (observation / orchestrator / agent). One proto serves both gRPC and REST (via gRPC-Gateway).
 
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts/gen-proto.ps1   # or: make proto-gen
+```bash
+go run ./cmd/genproto          # or: make proto-gen
 ```
 
-- The first run auto-downloads protoc + 4 generator plugins into `bin/` (gitignored, no system pollution).
+- Cross-platform (Windows / macOS / Linux): the Go tool bootstraps protoc + 4 generator plugins into `bin/` (gitignored, no system pollution) on first run.
+- Flags: `-skip-bootstrap` to regenerate only, `-only-bootstrap` to just install/verify the toolchain.
 - Generated code is committed: `api/gen/<pkg>/v1/*.pb.go`, `*.pb.gw.go`, `*_grpc.pb.go`.
 - OpenAPI: `api/gen/openapi/mfdh.swagger.json` (merged spec, importable into Swagger UI).
 - Contract tests: `go test ./internal/observation/ -cover` (round-trip / schema_version / illegal field rejection).
