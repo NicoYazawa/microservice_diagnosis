@@ -20,3 +20,6 @@ scripts/
 .vscode/
 .DS_Store
 Thumbs.db
+
+# Claude agent memory (local only)
+.claude/
