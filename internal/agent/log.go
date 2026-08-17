@@ -8,6 +8,7 @@ import (
 	"log/slog"
 
 	observationv1 "github.com/NicoYazawa/microservice_diagnosis/api/gen/observation/v1"
+	"github.com/NicoYazawa/microservice_diagnosis/internal/bus"
 	"github.com/NicoYazawa/microservice_diagnosis/internal/observation"
 )
 
@@ -24,15 +25,50 @@ func NewLogAgent(log *slog.Logger) *LogAgent {
 // Name implements Agent.
 func (a *LogAgent) Name() string { return "agent-log" }
 
-// InputTopic implements Agent (Log agent consumes raw log batches or ALERT events).
-func (a *LogAgent) InputTopic() string { return "observations-raw" }
+// InputTopic implements Agent (Log agent consumes commands from orchestrator).
+func (a *LogAgent) InputTopic() string { return bus.TopicCommandsLog }
 
-// OutputTopic implements Agent.
-func (a *LogAgent) OutputTopic() string { return "observations-log" }
+// OutputTopic implements Agent (emits to its own observations topic).
+func (a *LogAgent) OutputTopic() string { return bus.TopicObservationsLog }
 
 // Handle implements Agent. It parses raw log observations, detects patterns,
 // and emits LOG type observations with sub_type=log_pattern.
 func (a *LogAgent) Handle(ctx context.Context, sessionID string, inputs []*observationv1.Observation) ([]*observationv1.Observation, error) {
+	// Check for collect command: ALERT with sub_type="collect_command".
+	for _, o := range inputs {
+		if o.GetType() == observationv1.EvidenceType_EVIDENCE_TYPE_ALERT && o.GetSubType() == "collect_command" {
+			// Received collect command: emit synthetic log pattern for demo.
+			detail, _ := json.Marshal(logPattern{
+				Pattern:       "slow_query_detected",
+				Count:        10,
+				FirstSeen:    "2026-08-17T10:00:00Z",
+				LastSeen:     "2026-08-17T10:30:00Z",
+				Confidence:   0.75,
+				Severity:     observationv1.Severity_SEVERITY_ERROR,
+				TargetService: o.GetTargetService(),
+				Correlations:  map[string]string{},
+				Labels:        o.GetLabels(),
+			})
+			o, err := observation.New(&observationv1.Observation{
+				SessionId:     sessionID,
+				Source:        a.Name(),
+				Type:          observationv1.EvidenceType_EVIDENCE_TYPE_LOG,
+				SubType:       "log_pattern",
+				Confidence:    0.75,
+				Severity:      observationv1.Severity_SEVERITY_ERROR,
+				TargetService: o.GetTargetService(),
+				Correlations:  map[string]string{},
+				DetailJson:    string(detail),
+				Labels:        o.GetLabels(),
+			})
+			if err != nil {
+				a.log.Error("log agent: emit synthetic observation", "error", err)
+				continue
+			}
+			return []*observationv1.Observation{o}, nil
+		}
+	}
+
 	var rawLogs []*observationv1.Observation
 	for _, o := range inputs {
 		if o.GetType() == observationv1.EvidenceType_EVIDENCE_TYPE_LOG {

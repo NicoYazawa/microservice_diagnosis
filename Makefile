@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-.PHONY: build vet test test-integration tidy up down ps logs run-orchestrator run-agent-log proto-gen
+.PHONY: build vet test test-integration tidy up down ps logs run-orchestrator run-agent-log proto-gen e2e
 
 build:
 	go build ./cmd/...
@@ -37,3 +37,6 @@ run-agent-log:
 
 proto-gen:
 	go run ./cmd/genproto
+
+e2e:
+	./scripts/e2e/e2e.sh

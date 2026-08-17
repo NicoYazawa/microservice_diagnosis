@@ -194,6 +194,7 @@ func (e *Engine) tryTransition(ctx context.Context, sessionID uuid.UUID, event s
 	}
 	nextStatus, allowed := eventMap[event]
 	if !allowed {
+		e.log.Info("workflow: transition not allowed", "status", status, "event", event)
 		return "", fmt.Errorf("%w: %s + %s", ErrInvalidTransition, status, event)
 	}
 

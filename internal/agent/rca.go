@@ -8,6 +8,7 @@ import (
 	"math"
 
 	observationv1 "github.com/NicoYazawa/microservice_diagnosis/api/gen/observation/v1"
+	"github.com/NicoYazawa/microservice_diagnosis/internal/bus"
 	"github.com/NicoYazawa/microservice_diagnosis/internal/llm"
 	"github.com/NicoYazawa/microservice_diagnosis/internal/observation"
 )
@@ -26,11 +27,11 @@ func NewRCAgent(llmClient *llm.Client, log *slog.Logger) *RCAgent {
 // Name implements Agent.
 func (a *RCAgent) Name() string { return "agent-rca" }
 
-// InputTopic implements Agent (RCA consumes all processed evidence topics).
-func (a *RCAgent) InputTopic() string { return "observations-log" }
+// InputTopic implements Agent (RCA consumes commands from orchestrator).
+func (a *RCAgent) InputTopic() string { return bus.TopicCommandsRCA }
 
 // OutputTopic implements Agent.
-func (a *RCAgent) OutputTopic() string { return "observations-rca" }
+func (a *RCAgent) OutputTopic() string { return bus.TopicObservationsRCA }
 
 // Handle implements Agent. It aggregates evidence from LOG/ METRIC / TRACE agents,
 // calls the LLM to perform root cause analysis, and emits an RCA_RESULT type
@@ -40,39 +41,39 @@ func (a *RCAgent) Handle(ctx context.Context, sessionID string, inputs []*observ
 		return nil, nil
 	}
 
+	// Detect "analyze" command: the trigger observation is an ALERT with subType "collect_command".
+	// In this case we perform RCA directly using the command payload as context.
+	if len(inputs) == 1 && inputs[0].GetType() == observationv1.EvidenceType_EVIDENCE_TYPE_ALERT {
+		var cmd bus.CommandMessage
+		if err := json.Unmarshal([]byte(inputs[0].GetDetailJson()), &cmd); err == nil && cmd.Command == "analyze" {
+			evidenceSummary := fmt.Sprintf("Analyze requested for session %s, target %s", sessionID, cmd.TargetService)
+			// No aggregated evidence in the analyze path — pass nil to runRCA
+			// so the heuristic fallback uses the no-evidence branch.
+			rcaResult := a.runRCA(ctx, cmd.TargetService, evidenceSummary, nil)
+			detail, _ := json.Marshal(rcaResult)
+			severity := observationv1.Severity_SEVERITY_INFO
+			o, err := observation.New(&observationv1.Observation{
+				SessionId:     sessionID,
+				Source:        a.Name(),
+				Type:          observationv1.EvidenceType_EVIDENCE_TYPE_RCA_RESULT,
+				SubType:       "rca_result",
+				Confidence:    rcaResult.Confidence,
+				Severity:      severity,
+				TargetService: cmd.TargetService,
+				DetailJson:    string(detail),
+				Labels:        inputs[0].GetLabels(),
+			})
+			if err != nil {
+				return nil, fmt.Errorf("rca agent: create observation: %w", err)
+			}
+			return []*observationv1.Observation{o}, nil
+		}
+	}
+
 	// Build evidence summary for LLM.
 	evidenceSummary := buildEvidenceSummary(inputs)
-
-	systemPrompt := `You are a microservice diagnostics expert. Based on the evidence provided, perform root cause analysis.
-Return a JSON object with these fields:
-- root_cause: a concise description of the root cause (1-2 sentences)
-- root_cause_pattern: a searchable pattern tag (e.g. "database_connection_pool_exhaustion", "n_plus_one_query", "memory_leak", "timeout_cascade")
-- confidence: a number between 0.0 and 1.0 indicating your confidence in this analysis
-- evidence_summary: a 1-sentence summary of the key supporting evidence
-Only return valid JSON. No markdown or additional text.`
-
-	var rcaResult RCAOutput
-	if a.llmClient != nil {
-		answer, err := a.llmClient.Chat(ctx, systemPrompt, evidenceSummary)
-		if err != nil {
-			a.log.Error("rca agent: LLM call failed", "error", err)
-			// Fall back to heuristic RCA.
-			rcaResult = heuristicRCA(inputs)
-		} else {
-			if err := json.Unmarshal([]byte(answer), &rcaResult); err != nil {
-				a.log.Warn("rca agent: failed to parse LLM response, using heuristic", "error", err)
-				rcaResult = heuristicRCA(inputs)
-			} else if rcaResult.RootCause == "" || rcaResult.RootCausePattern == "" {
-				a.log.Warn("rca agent: LLM response missing required fields, using heuristic")
-				rcaResult = heuristicRCA(inputs)
-			} else {
-				rcaResult.Confidence = math.Min(math.Max(rcaResult.Confidence, 0), 1)
-			}
-		}
-	} else {
-		// No LLM configured, use heuristic.
-		rcaResult = heuristicRCA(inputs)
-	}
+	targetService := inputs[0].GetTargetService()
+	rcaResult := a.runRCA(ctx, targetService, evidenceSummary, inputs)
 
 	// Determine severity from inputs.
 	severity := observationv1.Severity_SEVERITY_INFO
@@ -89,8 +90,8 @@ Only return valid JSON. No markdown or additional text.`
 		Type:          observationv1.EvidenceType_EVIDENCE_TYPE_RCA_RESULT,
 		SubType:       "rca_result",
 		Confidence:    rcaResult.Confidence,
-		Severity:     severity,
-		TargetService: inputs[0].GetTargetService(),
+		Severity:      severity,
+		TargetService: targetService,
 		DetailJson:    string(detail),
 		Labels:        inputs[0].GetLabels(),
 	})
@@ -98,6 +99,52 @@ Only return valid JSON. No markdown or additional text.`
 		return nil, fmt.Errorf("rca agent: create observation: %w", err)
 	}
 	return []*observationv1.Observation{o}, nil
+}
+
+// runRCA calls the LLM and falls back to a heuristic when no LLM is configured
+// or the LLM call fails. inputs is the original evidence; when non-empty the
+// evidence-based heuristic is used (so useful conclusions are produced even
+// without an LLM).
+func (a *RCAgent) runRCA(ctx context.Context, targetService, evidenceSummary string, inputs []*observationv1.Observation) RCAOutput {
+	systemPrompt := `You are a microservice diagnostics expert. Based on the evidence provided, perform root cause analysis.
+Return a JSON object with these fields:
+- root_cause: a concise description of the root cause (1-2 sentences)
+- root_cause_pattern: a searchable pattern tag (e.g. "database_connection_pool_exhaustion", "n_plus_one_query", "memory_leak", "timeout_cascade")
+- confidence: a number between 0.0 and 1.0 indicating your confidence in this analysis
+- evidence_summary: a 1-sentence summary of the key supporting evidence
+Only return valid JSON. No markdown or additional text.`
+
+	var rcaResult RCAOutput
+	if a.llmClient != nil {
+		answer, err := a.llmClient.Chat(ctx, systemPrompt, evidenceSummary)
+		if err != nil {
+			a.log.Error("rca agent: LLM call failed, falling back to heuristic", "error", err)
+		} else if err := json.Unmarshal([]byte(answer), &rcaResult); err != nil {
+			a.log.Warn("rca agent: failed to parse LLM response, falling back to heuristic", "error", err)
+		} else if rcaResult.RootCause == "" || rcaResult.RootCausePattern == "" {
+			a.log.Warn("rca agent: LLM response missing required fields, falling back to heuristic")
+		} else {
+			rcaResult.Confidence = math.Min(math.Max(rcaResult.Confidence, 0), 1)
+			return rcaResult
+		}
+	}
+	// LLM unavailable, call failed, response invalid, or response empty:
+	// use the evidence-based heuristic when we have inputs.
+	if len(inputs) > 0 {
+		return heuristicRCA(inputs)
+	}
+	return heuristicRFACall(targetService)
+}
+
+// heuristicRFACall is the no-LLM fallback used in the analyze-command path
+// where no upstream evidence is available.
+func heuristicRFACall(targetService string) RCAOutput {
+	return RCAOutput{
+		RootCause:        fmt.Sprintf("Analysis triggered for %s (heuristic mode, no LLM)", targetService),
+		RootCausePattern: "unknown",
+		Confidence:       0.3,
+		EvidenceSummary:  "No LLM configured; using heuristic fallback",
+	}
 }
 
 // RCAOutput is the structured output from the RCA LLM analysis.
@@ -123,7 +170,10 @@ func buildEvidenceSummary(inputs []*observationv1.Observation) string {
 	return summary
 }
 
-// heuristicRCA performs rule-based RCA when LLM is unavailable or fails.
+// heuristicRCA performs rule-based RCA using aggregated evidence when LLM is
+// unavailable or fails. Returns a meaningful pattern (timeout_cascade /
+// database_connection_pool_exhaustion / n_plus_one_query / resource_leak)
+// instead of the generic "unknown" fallback.
 func heuristicRCA(inputs []*observationv1.Observation) RCAOutput {
 	var errCount, warnCount int
 	var traceIDs []string
@@ -153,38 +203,38 @@ func heuristicRCA(inputs []*observationv1.Observation) RCAOutput {
 		return RCAOutput{
 			RootCause:        "Cascading timeout triggered by slow downstream service",
 			RootCausePattern: "timeout_cascade",
-			Confidence:        0.8,
-			EvidenceSummary:   fmt.Sprintf("%d errors, %d slow spans including %s", errCount, len(slowSpans), slowSpans[0]),
+			Confidence:       0.8,
+			EvidenceSummary:  fmt.Sprintf("%d errors, %d slow spans including %s", errCount, len(slowSpans), slowSpans[0]),
 		}
 	}
 	if errCount > 10 {
 		return RCAOutput{
 			RootCause:        "Database connection pool exhaustion causing repeated failures",
 			RootCausePattern: "database_connection_pool_exhaustion",
-			Confidence:        0.75,
-			EvidenceSummary:   fmt.Sprintf("%d errors within the same service", errCount),
+			Confidence:       0.75,
+			EvidenceSummary:  fmt.Sprintf("%d errors within the same service", errCount),
 		}
 	}
 	if len(slowSpans) > 3 {
 		return RCAOutput{
 			RootCause:        "N+1 query pattern causing increased latency",
 			RootCausePattern: "n_plus_one_query",
-			Confidence:        0.7,
-			EvidenceSummary:   fmt.Sprintf("%d slow spans detected", len(slowSpans)),
+			Confidence:       0.7,
+			EvidenceSummary:  fmt.Sprintf("%d slow spans detected", len(slowSpans)),
 		}
 	}
 	if warnCount > 20 {
 		return RCAOutput{
 			RootCause:        "Memory or goroutine leak causing gradual degradation",
 			RootCausePattern: "resource_leak",
-			Confidence:        0.65,
-			EvidenceSummary:   fmt.Sprintf("%d warnings indicating resource pressure", warnCount),
+			Confidence:       0.65,
+			EvidenceSummary:  fmt.Sprintf("%d warnings indicating resource pressure", warnCount),
 		}
 	}
 	return RCAOutput{
 		RootCause:        "Unknown root cause, more evidence needed",
 		RootCausePattern: "unknown",
-		Confidence:        0.3,
+		Confidence:       0.3,
 		EvidenceSummary:  fmt.Sprintf("%d errors, %d warnings", errCount, warnCount),
 	}
 }

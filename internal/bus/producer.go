@@ -32,13 +32,14 @@ func NewProducer(cfg Config) (Producer, error) {
 		return nil, err
 	}
 	w := &kafka.Writer{
-		Addr:         kafka.TCP(cfg.Brokers...),
-		Balancer:     &kafka.Hash{}, // key-hash => deterministic partition per key
-		BatchSize:    cfg.BatchSize,
-		BatchBytes:   cfg.BatchBytes,
-		BatchTimeout: cfg.BatchTimeout,
-		WriteTimeout: cfg.WriteTimeout,
-		RequiredAcks: acks,
+		Addr:                   kafka.TCP(cfg.Brokers...),
+		Balancer:               &kafka.Hash{}, // key-hash => deterministic partition per key
+		BatchSize:              1,             // flush immediately for low-latency diagnosis
+		BatchBytes:             cfg.BatchBytes,
+		BatchTimeout:           cfg.BatchTimeout,
+		WriteTimeout:           cfg.WriteTimeout,
+		RequiredAcks:           acks,
+		AllowAutoTopicCreation: true,
 	}
 	return &kafkaProducer{w: w}, nil
 }

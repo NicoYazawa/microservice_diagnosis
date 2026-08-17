@@ -1,9 +1,13 @@
 service:
   name: orchestrator
-  http_addr: ":8080"
+  http_addr: ":9080"
 log:
   level: info
   format: json
 bus:
   brokers:
     - localhost:29092
+database:
+  url: "postgres://mfdh:mfdh@localhost:25432/diagnosis?sslmode=disable"
+consul:
+  addr: "localhost:8500"

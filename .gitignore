@@ -3,6 +3,16 @@ bin/
 *.exe
 *.test
 *.out
+agent-log
+agent-metric
+agent-trace
+agent-rca
+agent-fix
+orchestrator
+orchestrator_*.exe
+*.build.log
+test.o
+*~
 
 # Environment
 .env
@@ -11,6 +21,7 @@ bin/
 # Local runtime data
 data/
 tmp/
+.tmp-kafka-inspect/
 
 # Local scripts (not versioned)
 scripts/

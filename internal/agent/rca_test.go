@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	observationv1 "github.com/NicoYazawa/microservice_diagnosis/api/gen/observation/v1"
+	"github.com/NicoYazawa/microservice_diagnosis/internal/bus"
 	"github.com/NicoYazawa/microservice_diagnosis/internal/observation"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -17,11 +18,11 @@ func TestRCAgent_NameAndTopics(t *testing.T) {
 	if got := a.Name(); got != "agent-rca" {
 		t.Errorf("Name() = %q, want %q", got, "agent-rca")
 	}
-	if got := a.InputTopic(); got != "observations-log" {
-		t.Errorf("InputTopic() = %q, want %q", got, "observations-log")
+	if got := a.InputTopic(); got != bus.TopicCommandsRCA {
+		t.Errorf("InputTopic() = %q, want %q", got, bus.TopicCommandsRCA)
 	}
-	if got := a.OutputTopic(); got != "observations-rca" {
-		t.Errorf("OutputTopic() = %q, want %q", got, "observations-rca")
+	if got := a.OutputTopic(); got != bus.TopicObservationsRCA {
+		t.Errorf("OutputTopic() = %q, want %q", got, bus.TopicObservationsRCA)
 	}
 }
 

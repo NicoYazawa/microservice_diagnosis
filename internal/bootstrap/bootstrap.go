@@ -23,7 +23,6 @@ import (
 	"github.com/NicoYazawa/microservice_diagnosis/internal/executor"
 	"github.com/NicoYazawa/microservice_diagnosis/internal/logger"
 	"github.com/NicoYazawa/microservice_diagnosis/internal/notify"
-	"github.com/NicoYazawa/microservice_diagnosis/internal/report"
 	"github.com/NicoYazawa/microservice_diagnosis/internal/server"
 	"github.com/NicoYazawa/microservice_diagnosis/internal/store"
 	"github.com/NicoYazawa/microservice_diagnosis/internal/workflow"
@@ -130,20 +129,21 @@ func Run(serviceName string, opts Options) error {
 		registry = discovery.NewMockRegistry(log)
 	}
 
-	// Build HTTP server.
+	// Build HTTP server (only for services with a database connection).
 	var srv *server.GinServer
 	if pool != nil && engine != nil {
-		srv = server.NewGinServer(cfg, log, pool, engine, registry)
-	} else {
-		srv = server.NewGinServer(cfg, log, nil, nil, nil)
+		srv = server.NewGinServer(ctx, cfg, log, pool, engine, registry)
 	}
+	// For agents (SkipDatabase=true), pool is nil so srv stays nil.
 
 	errCh := make(chan error, 1)
-	go func() {
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			errCh <- err
-		}
-	}()
+	if srv != nil {
+		go func() {
+			if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				errCh <- err
+			}
+		}()
+	}
 
 	log.Info("service started",
 		"name", serviceName,
@@ -173,8 +173,10 @@ func Run(serviceName string, opts Options) error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	if err := srv.Shutdown(shutdownCtx); err != nil {
-		log.Error("graceful shutdown failed", "error", err)
+	if srv != nil {
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			log.Error("graceful shutdown failed", "error", err)
+		}
 	}
 
 	if registry != nil {
@@ -188,31 +190,12 @@ func Run(serviceName string, opts Options) error {
 }
 
 // OrchestratorReady is the default OnOrchestratorReady implementation.
-// It wires up the full handler stack and starts the Kafka event loop + sweep cycles.
+// The event loop is already started in NewGinServer (before this callback fires).
+// This callback only sets the sessionEventDAO on the engine.
 func OrchestratorReady(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, engine *workflow.Engine, log *slog.Logger) {
 	sessionEventDAO := store.NewSessionEventDAO(pool)
 	engine.SetSessionEventDAO(sessionEventDAO)
-
-	sessionDAO := store.NewSessionDAO(pool)
-	fixDAO := store.NewFixActionDAO(pool)
-	approvalDAO := store.NewApprovalDAO(pool)
-	webhookDAO := notify.NewWebhookDAO(pool)
-
-	approvalClient := buildApprovalClient(cfg, log)
-	exec := buildExecutor(cfg, log)
-	incidentNotifier := buildIncidentNotifier(cfg)
-	webhookNotifier := notify.NewWebhookNotifier(webhookDAO, log)
-	reportEngine := report.NewEngine(pool)
-
-	handler := server.NewOrchestratorHandler(
-		sessionDAO, fixDAO, approvalDAO, webhookDAO,
-		engine, discovery.NewMockRegistry(log),
-		approvalClient, exec, incidentNotifier, webhookNotifier, reportEngine, log,
-	)
-
-	server.StartEventLoop(ctx, engine, sessionDAO, fixDAO, sessionEventDAO,
-		handler.TriggerApprovalGate, handler.ExecuteFixActions,
-		cfg.Bus.Brokers, log)
+	log.Info("orchestrator ready: sessionEventDAO wired", "service", "orchestrator")
 }
 
 func buildApprovalClient(cfg *config.Config, log *slog.Logger) approval.ApprovalClient {

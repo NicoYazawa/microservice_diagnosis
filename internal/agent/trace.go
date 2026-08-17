@@ -6,6 +6,7 @@ import (
 	"log/slog"
 
 	observationv1 "github.com/NicoYazawa/microservice_diagnosis/api/gen/observation/v1"
+	"github.com/NicoYazawa/microservice_diagnosis/internal/bus"
 	"github.com/NicoYazawa/microservice_diagnosis/internal/observation"
 )
 
@@ -22,16 +23,53 @@ func NewTraceAgent(log *slog.Logger) *TraceAgent {
 // Name implements Agent.
 func (a *TraceAgent) Name() string { return "agent-trace" }
 
-// InputTopic implements Agent.
-func (a *TraceAgent) InputTopic() string { return "observations-raw" }
+// InputTopic implements Agent (consumes commands from orchestrator).
+func (a *TraceAgent) InputTopic() string { return bus.TopicCommandsTrace }
 
-// OutputTopic implements Agent.
-func (a *TraceAgent) OutputTopic() string { return "observations-trace" }
+// OutputTopic implements Agent (emits to its own observations topic).
+func (a *TraceAgent) OutputTopic() string { return bus.TopicObservationsTrace }
 
 // Handle implements Agent. It processes TRACE type observations, identifies
 // slow spans and bottlenecks, and emits TRACE type observations with
 // sub_type=trace_bottleneck.
 func (a *TraceAgent) Handle(ctx context.Context, sessionID string, inputs []*observationv1.Observation) ([]*observationv1.Observation, error) {
+	// Check for collect command: ALERT with sub_type="collect_command".
+	for _, o := range inputs {
+		if o.GetType() == observationv1.EvidenceType_EVIDENCE_TYPE_ALERT && o.GetSubType() == "collect_command" {
+			// Emit synthetic slow span bottleneck for demo.
+			detail, _ := json.Marshal(traceBottleneck{
+				SpanID:        "span-001",
+				TraceID:       "trace-abc123",
+				ServiceName:   o.GetTargetService(),
+				OperationName: "/orders",
+				DurationMs:    1200.0,
+				P99Ms:         500.0,
+				Severity:     observationv1.Severity_SEVERITY_ERROR,
+				Confidence:    0.8,
+				TargetService: o.GetTargetService(),
+				Correlations:  map[string]string{"trace_id": "trace-abc123", "span_id": "span-001"},
+				Labels:        o.GetLabels(),
+			})
+			o, err := observation.New(&observationv1.Observation{
+				SessionId:     sessionID,
+				Source:        a.Name(),
+				Type:          observationv1.EvidenceType_EVIDENCE_TYPE_TRACE,
+				SubType:       "trace_bottleneck",
+				Confidence:    0.8,
+				Severity:      observationv1.Severity_SEVERITY_ERROR,
+				TargetService: o.GetTargetService(),
+				Correlations:  map[string]string{"trace_id": "trace-abc123", "span_id": "span-001"},
+				DetailJson:    string(detail),
+				Labels:        o.GetLabels(),
+			})
+			if err != nil {
+				a.log.Error("trace agent: emit synthetic observation", "error", err)
+				continue
+			}
+			return []*observationv1.Observation{o}, nil
+		}
+	}
+
 	var traces []*observationv1.Observation
 	for _, o := range inputs {
 		if o.GetType() == observationv1.EvidenceType_EVIDENCE_TYPE_TRACE {

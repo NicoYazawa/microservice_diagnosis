@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	observationv1 "github.com/NicoYazawa/microservice_diagnosis/api/gen/observation/v1"
+	"github.com/NicoYazawa/microservice_diagnosis/internal/bus"
 	"github.com/NicoYazawa/microservice_diagnosis/internal/observation"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -15,11 +16,11 @@ func TestMetricAgent_NameAndTopics(t *testing.T) {
 	if got := a.Name(); got != "agent-metric" {
 		t.Errorf("Name() = %q, want %q", got, "agent-metric")
 	}
-	if got := a.InputTopic(); got != "observations-raw" {
-		t.Errorf("InputTopic() = %q, want %q", got, "observations-raw")
+	if got := a.InputTopic(); got != bus.TopicCommandsMetric {
+		t.Errorf("InputTopic() = %q, want %q", got, bus.TopicCommandsMetric)
 	}
-	if got := a.OutputTopic(); got != "observations-metric" {
-		t.Errorf("OutputTopic() = %q, want %q", got, "observations-metric")
+	if got := a.OutputTopic(); got != bus.TopicObservationsMetric {
+		t.Errorf("OutputTopic() = %q, want %q", got, bus.TopicObservationsMetric)
 	}
 }
 

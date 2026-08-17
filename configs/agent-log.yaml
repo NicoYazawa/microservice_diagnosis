@@ -1,6 +1,6 @@
 service:
   name: agent-log
-  http_addr: ":8081"
+  http_addr: ":9081"
 log:
   level: info
   format: json

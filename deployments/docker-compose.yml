@@ -35,7 +35,7 @@ services:
       POSTGRES_PASSWORD: mfdh
       POSTGRES_DB: diagnosis
     ports:
-      - "5432:5432"
+      - "25432:5432"
     volumes:
       - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
       - pgdata:/var/lib/postgresql
@@ -49,6 +49,10 @@ services:
   clickhouse:
     image: clickhouse/clickhouse-server:26.7
     container_name: mfdh-clickhouse
+    environment:
+      - CLICKHOUSE_USER=mfdh
+      - CLICKHOUSE_PASSWORD=mfdh
+      - CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1
     ports:
       - "8123:8123"
       - "19000:9000"

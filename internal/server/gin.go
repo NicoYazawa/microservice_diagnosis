@@ -15,6 +15,7 @@ import (
 
 	"github.com/NicoYazawa/microservice_diagnosis/api/gen/orchestrator/v1"
 	"github.com/NicoYazawa/microservice_diagnosis/internal/approval"
+	"github.com/NicoYazawa/microservice_diagnosis/internal/bus"
 	"github.com/NicoYazawa/microservice_diagnosis/internal/config"
 	"github.com/NicoYazawa/microservice_diagnosis/internal/discovery"
 	"github.com/NicoYazawa/microservice_diagnosis/internal/executor"
@@ -30,10 +31,17 @@ type GinServer struct {
 	cfg          *config.Config
 	log          *slog.Logger
 	reportEngine *report.Engine
+	Handler      *OrchestratorHandler // exposed so callers can wire eventLoop
 }
 
 // NewGinServer creates a Gin-based HTTP server with REST handlers wired to the data layer.
+//
+// The ctx is used to drive the event loop and sweep goroutines: when ctx is
+// cancelled (typically by a SIGINT/SIGTERM signal in bootstrap.Run), the event
+// loop and sweep shut down alongside the HTTP server. Pass the shutdown-aware
+// context from bootstrap rather than context.Background().
 func NewGinServer(
+	ctx context.Context,
 	cfg *config.Config,
 	log *slog.Logger,
 	pool *pgxpool.Pool,
@@ -61,6 +69,24 @@ func NewGinServer(
 		sessionDAO, fixDAO, approvalDAO, webhookDAO,
 		engine, registry, approvalClient, exec, incidentNotifier, webhookNotifier, reportEngine, log,
 	)
+
+	// Start the event loop and wire it to the handler.
+	// This must happen here (not in OnOrchestratorReady) because NewGinServer
+	// is called before OnOrchestratorReady in bootstrap.Run(), and the handler
+	// created here is the one registered to the HTTP routes.
+	sessionEventDAO := store.NewSessionEventDAO(pool)
+	producer, prodErr := bus.NewProducer(bus.Config{Brokers: cfg.Bus.Brokers})
+	if prodErr != nil {
+		log.Warn("gin server: producer create failed", "error", prodErr)
+	} else if producer == nil {
+		log.Warn("gin server: producer is nil")
+	} else {
+		el := StartEventLoop(ctx, engine, sessionDAO, fixDAO, sessionEventDAO,
+			producer, handler.TriggerApprovalGate, handler.ExecuteFixActions,
+			cfg.Bus.Brokers, log)
+		handler.SetEventLoop(el)
+		log.Info("gin server: event loop wired to handler", "brokers", cfg.Bus.Brokers)
+	}
 
 	// REST routes.
 	r.GET("/healthz", handler.Healthz)
@@ -121,6 +147,7 @@ func NewGinServer(
 		cfg:          cfg,
 		log:          log,
 		reportEngine: reportEngine,
+		Handler:      handler,
 	}
 }
 

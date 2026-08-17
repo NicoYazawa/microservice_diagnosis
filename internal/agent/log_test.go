@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	observationv1 "github.com/NicoYazawa/microservice_diagnosis/api/gen/observation/v1"
+	"github.com/NicoYazawa/microservice_diagnosis/internal/bus"
 	"github.com/NicoYazawa/microservice_diagnosis/internal/observation"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -15,11 +16,11 @@ func TestLogAgent_NameAndTopics(t *testing.T) {
 	if got := a.Name(); got != "agent-log" {
 		t.Errorf("Name() = %q, want %q", got, "agent-log")
 	}
-	if got := a.InputTopic(); got != "observations-raw" {
-		t.Errorf("InputTopic() = %q, want %q", got, "observations-raw")
+	if got := a.InputTopic(); got != bus.TopicCommandsLog {
+		t.Errorf("InputTopic() = %q, want %q", got, bus.TopicCommandsLog)
 	}
-	if got := a.OutputTopic(); got != "observations-log" {
-		t.Errorf("OutputTopic() = %q, want %q", got, "observations-log")
+	if got := a.OutputTopic(); got != bus.TopicObservationsLog {
+		t.Errorf("OutputTopic() = %q, want %q", got, bus.TopicObservationsLog)
 	}
 }
 

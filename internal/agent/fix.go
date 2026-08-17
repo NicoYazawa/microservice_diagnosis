@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	observationv1 "github.com/NicoYazawa/microservice_diagnosis/api/gen/observation/v1"
+	"github.com/NicoYazawa/microservice_diagnosis/internal/bus"
 	"github.com/NicoYazawa/microservice_diagnosis/internal/llm"
 	"github.com/NicoYazawa/microservice_diagnosis/internal/observation"
 	"github.com/NicoYazawa/microservice_diagnosis/internal/store"
@@ -26,11 +27,16 @@ type FixAgent struct {
 
 // NewFixAgent creates a new FixAgent.
 func NewFixAgent(pool *pgxpool.Pool, llmClient *llm.Client, log *slog.Logger) *FixAgent {
+	kbDAO, fixDAO := (*store.KnowledgeBaseDAO)(nil), (*store.FixActionDAO)(nil)
+	if pool != nil {
+		kbDAO = store.NewKnowledgeBaseDAO(pool)
+		fixDAO = store.NewFixActionDAO(pool)
+	}
 	return &FixAgent{
 		pool:      pool,
 		llmClient: llmClient,
-		kbDAO:     store.NewKnowledgeBaseDAO(pool),
-		fixDAO:    store.NewFixActionDAO(pool),
+		kbDAO:     kbDAO,
+		fixDAO:    fixDAO,
 		log:       log,
 	}
 }
@@ -38,11 +44,11 @@ func NewFixAgent(pool *pgxpool.Pool, llmClient *llm.Client, log *slog.Logger) *F
 // Name implements Agent.
 func (a *FixAgent) Name() string { return "agent-fix" }
 
-// InputTopic implements Agent (Fix consumes RCA results).
-func (a *FixAgent) InputTopic() string { return "observations-rca" }
+// InputTopic implements Agent (Fix consumes RCA results from RCA output topic).
+func (a *FixAgent) InputTopic() string { return bus.TopicObservationsRCA }
 
 // OutputTopic implements Agent.
-func (a *FixAgent) OutputTopic() string { return "observations-fix" }
+func (a *FixAgent) OutputTopic() string { return bus.TopicObservationsFix }
 
 // Handle implements Agent. It processes RCA_RESULT observations, queries the
 // knowledge base for matching fix candidates, generates fix steps with risk
@@ -71,7 +77,7 @@ func (a *FixAgent) Handle(ctx context.Context, sessionID string, inputs []*obser
 		return nil, fmt.Errorf("fix agent: parse rca result: %w", err)
 	}
 
-	// Search knowledge base.
+	// Search knowledge base (skip if no pool available).
 	candidates, err := a.searchKnowledgeBase(ctx, rcaOutput.RootCausePattern)
 	if err != nil {
 		a.log.Warn("fix agent: knowledge base search failed, using LLM fallback", "error", err)
@@ -112,16 +118,24 @@ func (a *FixAgent) Handle(ctx context.Context, sessionID string, inputs []*obser
 			ApprovalStatus:   store.ApprovalStatusNone,
 			ExecutionStatus:  store.ExecStatusNotStarted,
 		}
-		if err := a.fixDAO.Create(ctx, fa); err != nil {
-			a.log.Error("fix agent: persist fix action", "error", err)
-			continue
+		dbError := ""
+		if a.fixDAO != nil {
+			if err := a.fixDAO.Create(ctx, fa); err != nil {
+				a.log.Error("fix agent: persist fix action", "error", err, "fix_action_id", fa.ID.String())
+				// Persistence failure: still emit the observation so the
+				// orchestrator can see the planned step, but mark the
+				// detail_json with the error. Do not silently truncate the
+				// fix plan (the old `break` dropped every subsequent step).
+				dbError = err.Error()
+			}
 		}
 
 		detail, err := json.Marshal(fixActionDetail{
-			Step:            step,
-			Risk:            risk,
-			RollbackPlan:    rollback,
+			Step:             step,
+			Risk:             risk,
+			RollbackPlan:     rollback,
 			RequiresApproval: requiresApproval,
+			DBPersistError:   dbError,
 		})
 		if err != nil {
 			a.log.Error("fix agent: marshal fix detail", "error", err, "fix_action_id", fa.ID.String())
@@ -150,6 +164,9 @@ func (a *FixAgent) Handle(ctx context.Context, sessionID string, inputs []*obser
 
 // searchKnowledgeBase queries the fix_knowledge_base table for matching entries.
 func (a *FixAgent) searchKnowledgeBase(ctx context.Context, pattern string) ([]FixCandidate, error) {
+	if a.kbDAO == nil {
+		return nil, fmt.Errorf("no database connection (kbDAO is nil)")
+	}
 	entries, err := a.kbDAO.SearchByRootCause(ctx, pattern)
 	if err != nil {
 		return nil, err
@@ -270,8 +287,12 @@ func (a *FixAgent) assessRisk(step FixStep) (risk string, rollback string) {
 
 // fixActionDetail is serialized into the Observation detail_json.
 type fixActionDetail struct {
-	Step            FixStep `json:"step"`
-	Risk            string  `json:"risk"`
-	RollbackPlan    string  `json:"rollback_plan"`
-	RequiresApproval bool   `json:"requires_approval"`
+	Step             FixStep `json:"step"`
+	Risk             string  `json:"risk"`
+	RollbackPlan     string  `json:"rollback_plan"`
+	RequiresApproval bool    `json:"requires_approval"`
+	// DBPersistError is non-empty when the fix_action row failed to persist.
+	// The observation is still emitted so the orchestrator sees the planned
+	// step; consumers must treat fix_action_id as zero/unreliable in this case.
+	DBPersistError string `json:"db_persist_error,omitempty"`
 }

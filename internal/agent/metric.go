@@ -6,6 +6,7 @@ import (
 	"log/slog"
 
 	observationv1 "github.com/NicoYazawa/microservice_diagnosis/api/gen/observation/v1"
+	"github.com/NicoYazawa/microservice_diagnosis/internal/bus"
 	"github.com/NicoYazawa/microservice_diagnosis/internal/observation"
 )
 
@@ -22,16 +23,52 @@ func NewMetricAgent(log *slog.Logger) *MetricAgent {
 // Name implements Agent.
 func (a *MetricAgent) Name() string { return "agent-metric" }
 
-// InputTopic implements Agent.
-func (a *MetricAgent) InputTopic() string { return "observations-raw" }
+// InputTopic implements Agent (consumes commands from orchestrator).
+func (a *MetricAgent) InputTopic() string { return bus.TopicCommandsMetric }
 
-// OutputTopic implements Agent.
-func (a *MetricAgent) OutputTopic() string { return "observations-metric" }
+// OutputTopic implements Agent (emits to its own observations topic).
+func (a *MetricAgent) OutputTopic() string { return bus.TopicObservationsMetric }
 
 // Handle implements Agent. It processes METRIC type observations, detects
 // anomalies using simple threshold heuristics, and emits METRIC type
 // observations with sub_type=metric_anomaly.
 func (a *MetricAgent) Handle(ctx context.Context, sessionID string, inputs []*observationv1.Observation) ([]*observationv1.Observation, error) {
+	// Check for collect command: ALERT with sub_type="collect_command".
+	for _, o := range inputs {
+		if o.GetType() == observationv1.EvidenceType_EVIDENCE_TYPE_ALERT && o.GetSubType() == "collect_command" {
+			// Emit synthetic latency anomaly for demo.
+			detail, _ := json.Marshal(metricAnomaly{
+				MetricName:    "http_request_duration_ms",
+				Value:         150.0,
+				Threshold:     100.0,
+				Relation:      "gt",
+				AnomalyType:   "latency_breach",
+				Confidence:    0.8,
+				Severity:     observationv1.Severity_SEVERITY_ERROR,
+				TargetService: o.GetTargetService(),
+				Correlations:  map[string]string{},
+				Labels:        o.GetLabels(),
+			})
+			o, err := observation.New(&observationv1.Observation{
+				SessionId:     sessionID,
+				Source:        a.Name(),
+				Type:          observationv1.EvidenceType_EVIDENCE_TYPE_METRIC,
+				SubType:       "metric_anomaly",
+				Confidence:    0.8,
+				Severity:      observationv1.Severity_SEVERITY_ERROR,
+				TargetService: o.GetTargetService(),
+				Correlations:  map[string]string{},
+				DetailJson:    string(detail),
+				Labels:        o.GetLabels(),
+			})
+			if err != nil {
+				a.log.Error("metric agent: emit synthetic observation", "error", err)
+				continue
+			}
+			return []*observationv1.Observation{o}, nil
+		}
+	}
+
 	var metrics []*observationv1.Observation
 	for _, o := range inputs {
 		if o.GetType() == observationv1.EvidenceType_EVIDENCE_TYPE_METRIC {

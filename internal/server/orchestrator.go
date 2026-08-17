@@ -38,6 +38,7 @@ type OrchestratorHandler struct {
 	incidentNotifier  notify.IncidentNotifier
 	webhookNotifier   *notify.WebhookNotifier
 	reportEngine      *report.Engine
+	eventLoop        *eventLoop
 	log               *slog.Logger
 }
 
@@ -71,6 +72,15 @@ func NewOrchestratorHandler(
 		log:               log,
 	}
 }
+
+// SetEventLoop wires the event loop (with producer) into the handler
+// so StartSession can dispatch collect commands to agents.
+func (h *OrchestratorHandler) SetEventLoop(el *eventLoop) {
+	h.eventLoop = el
+}
+
+// EventLoop returns the wired event loop for testing/debugging.
+func (h *OrchestratorHandler) EventLoop() *eventLoop { return h.eventLoop }
 
 // --- Session CRUD ---
 
@@ -212,8 +222,36 @@ func (h *OrchestratorHandler) StartSession(c *gin.Context) {
 		return
 	}
 
-	s, _ := h.sessionDAO.GetByID(c.Request.Context(), id)
+	s, err := h.sessionDAO.GetByID(c.Request.Context(), id)
+	if err != nil {
+		// Previously this was ignored, leading to a nil dereference of
+		// s.TargetService on a transient DB error. Surface the failure
+		// instead.
+		if errors.Is(err, store.ErrNotFound) {
+			notFound(c, "session not found")
+			return
+		}
+		internalError(c, fmt.Sprintf("get session: %v", err))
+		return
+	}
 	h.log.Info("session started", "id", id, "status", newStatus)
+
+	// Dispatch collect command to all base agents. Use a detached context so
+	// the client disconnecting (or the WriteTimeout firing) does not cancel
+	// the in-flight agent dispatches mid-way and leave some agents with no
+	// command while others received theirs.
+	if h.eventLoop != nil {
+		dispatchCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		if err := h.eventLoop.DispatchCollect(dispatchCtx, id.String(), s.TargetService); err != nil {
+			h.log.Error("dispatch collect failed", "session_id", id, "error", err)
+			internalError(c, fmt.Sprintf("dispatch collect: %v", err))
+			return
+		}
+	} else {
+		h.log.Warn("start session: eventLoop is nil, cannot dispatch")
+	}
+
 	c.JSON(http.StatusOK, orchestratorv1.StartSessionResponse{
 		Session: h.toSessionProto(s),
 	})
