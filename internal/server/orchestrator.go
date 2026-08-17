@@ -2,10 +2,12 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -13,7 +15,11 @@ import (
 
 	orchestratorv1 "github.com/NicoYazawa/microservice_diagnosis/api/gen/orchestrator/v1"
 	observationv1 "github.com/NicoYazawa/microservice_diagnosis/api/gen/observation/v1"
+	"github.com/NicoYazawa/microservice_diagnosis/internal/approval"
 	"github.com/NicoYazawa/microservice_diagnosis/internal/discovery"
+	"github.com/NicoYazawa/microservice_diagnosis/internal/executor"
+	"github.com/NicoYazawa/microservice_diagnosis/internal/notify"
+	"github.com/NicoYazawa/microservice_diagnosis/internal/report"
 	"github.com/NicoYazawa/microservice_diagnosis/internal/store"
 	"github.com/NicoYazawa/microservice_diagnosis/internal/workflow"
 )
@@ -21,12 +27,18 @@ import (
 // OrchestratorHandler implements the Orchestrator service HTTP handlers.
 // It bridges REST/gRPC-gateway requests to the workflow engine and data layer.
 type OrchestratorHandler struct {
-	sessionDAO  *store.SessionDAO
-	fixDAO      *store.FixActionDAO
-	approvalDAO *store.ApprovalDAO
-	engine      *workflow.Engine
-	discovery   discovery.Discovery
-	log         *slog.Logger
+	sessionDAO        *store.SessionDAO
+	fixDAO            *store.FixActionDAO
+	approvalDAO       *store.ApprovalDAO
+	webhookDAO        *notify.WebhookDAO
+	engine            *workflow.Engine
+	discovery         discovery.Discovery
+	approvalClient    approval.ApprovalClient
+	executor          executor.Executor
+	incidentNotifier  notify.IncidentNotifier
+	webhookNotifier   *notify.WebhookNotifier
+	reportEngine      *report.Engine
+	log               *slog.Logger
 }
 
 // NewOrchestratorHandler creates a handler wired to the given dependencies.
@@ -34,17 +46,29 @@ func NewOrchestratorHandler(
 	sessionDAO *store.SessionDAO,
 	fixDAO *store.FixActionDAO,
 	approvalDAO *store.ApprovalDAO,
+	webhookDAO *notify.WebhookDAO,
 	engine *workflow.Engine,
 	disc discovery.Discovery,
+	approvalClient approval.ApprovalClient,
+	exec executor.Executor,
+	incidentNotifier notify.IncidentNotifier,
+	webhookNotifier *notify.WebhookNotifier,
+	reportEngine *report.Engine,
 	log *slog.Logger,
 ) *OrchestratorHandler {
 	return &OrchestratorHandler{
-		sessionDAO:  sessionDAO,
-		fixDAO:      fixDAO,
-		approvalDAO: approvalDAO,
-		engine:      engine,
-		discovery:   disc,
-		log:         log,
+		sessionDAO:       sessionDAO,
+		fixDAO:            fixDAO,
+		approvalDAO:       approvalDAO,
+		webhookDAO:        webhookDAO,
+		engine:            engine,
+		discovery:         disc,
+		approvalClient:    approvalClient,
+		executor:          exec,
+		incidentNotifier:  incidentNotifier,
+		webhookNotifier:   webhookNotifier,
+		reportEngine:     reportEngine,
+		log:               log,
 	}
 }
 
@@ -335,7 +359,7 @@ func (h *OrchestratorHandler) DecisionApproval(c *gin.Context) {
 	})
 }
 
-// --- Report (placeholder — M7 implements actual rendering) ---
+// --- Report (M7: actual rendering) ---
 
 func (h *OrchestratorHandler) GetReport(c *gin.Context) {
 	idStr := c.Param("id")
@@ -345,28 +369,36 @@ func (h *OrchestratorHandler) GetReport(c *gin.Context) {
 		return
 	}
 
-	_, err = h.sessionDAO.GetByID(c.Request.Context(), id)
-	if err != nil {
-		if errors.Is(err, store.ErrNotFound) {
-			notFound(c, "session not found")
-			return
-		}
-		internalError(c, fmt.Sprintf("get session: %v", err))
-		return
-	}
-
 	format := orchestratorv1.ReportFormat_REPORT_FORMAT_MARKDOWN
 	if cf := c.Query("format"); cf == "pdf" {
 		format = orchestratorv1.ReportFormat_REPORT_FORMAT_PDF
 	}
 
-	// M7: actual report rendering with evidence, RCA, fix steps.
-	content := fmt.Sprintf("# Diagnostic Report\n\nSession: %s\n\n_(Full report rendering — M7)_", idStr)
+	if format == orchestratorv1.ReportFormat_REPORT_FORMAT_PDF {
+		_, pdf, contentType, err := h.reportEngine.GenerateReport(c.Request.Context(), id)
+		if err != nil {
+			internalError(c, fmt.Sprintf("generate report: %v", err))
+			return
+		}
+		c.Header("Content-Type", contentType)
+		c.Data(http.StatusOK, contentType, pdf)
+		return
+	}
+
+	markdown, err := h.reportEngine.RenderMarkdown(c.Request.Context(), id)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			notFound(c, "session not found")
+			return
+		}
+		internalError(c, fmt.Sprintf("generate report: %v", err))
+		return
+	}
 
 	c.JSON(http.StatusOK, orchestratorv1.GetReportResponse{
-		Format:      format,
-		Content:     content,
-		DownloadUrl: fmt.Sprintf("/v1/sessions/%s/report/download?format=%s", idStr, format.String()),
+		Format:      orchestratorv1.ReportFormat_REPORT_FORMAT_MARKDOWN,
+		Content:     markdown,
+		DownloadUrl: fmt.Sprintf("/v1/sessions/%s/report/download?format=markdown", idStr),
 	})
 }
 
@@ -378,33 +410,38 @@ func (h *OrchestratorHandler) DownloadReport(c *gin.Context) {
 		return
 	}
 
-	_, err = h.sessionDAO.GetByID(c.Request.Context(), id)
-	if err != nil {
-		if errors.Is(err, store.ErrNotFound) {
-			notFound(c, "session not found")
-			return
-		}
-		internalError(c, fmt.Sprintf("get session: %v", err))
-		return
-	}
-
 	format := "markdown"
 	if cf := c.Query("format"); cf == "pdf" {
 		format = "pdf"
 	}
 
-	content := fmt.Sprintf("# Diagnostic Report\n\nSession: %s\n\n_(Full report — M7)_", idStr)
-	if format == "pdf" {
-		content = "%PDF-placeholder"
-	}
+	var content []byte
+	var contentType string
 
-	contentType := "text/markdown"
 	if format == "pdf" {
-		contentType = "application/pdf"
+		_, pdf, ct, err := h.reportEngine.GenerateReport(c.Request.Context(), id)
+		if err != nil {
+			internalError(c, fmt.Sprintf("generate pdf report: %v", err))
+			return
+		}
+		content = pdf
+		contentType = ct
+	} else {
+		markdown, err := h.reportEngine.RenderMarkdown(c.Request.Context(), id)
+		if err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				notFound(c, "session not found")
+				return
+			}
+			internalError(c, fmt.Sprintf("generate markdown report: %v", err))
+			return
+		}
+		content = []byte(markdown)
+		contentType = "text/markdown"
 	}
 
 	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="report-%s.%s"`, idStr, format))
-	c.Data(http.StatusOK, contentType, []byte(content))
+	c.Data(http.StatusOK, contentType, content)
 }
 
 // --- Agent health via Consul discovery ---
@@ -565,4 +602,199 @@ func (h *OrchestratorHandler) buildTimeline(s *store.DiagnosticSession) []*orche
 		})
 	}
 	return events
+}
+
+// --- M6: Approval Gate ---
+
+// TriggerApprovalGate creates approval requests for all HIGH-risk fix actions
+// that are pending in a session, and sends webhook notifications.
+// It is called by the workflow sweep loop when a session reaches FIX_PROPOSED
+// and contains HIGH-risk steps (or by the FixAgent after generating fix actions).
+func (h *OrchestratorHandler) TriggerApprovalGate(ctx context.Context, sessionID uuid.UUID) error {
+	fixes, err := h.fixDAO.GetBySessionID(ctx, sessionID)
+	if err != nil {
+		return fmt.Errorf("trigger approval: get fixes: %w", err)
+	}
+
+	var highRiskFixes []*store.FixAction
+	for _, fa := range fixes {
+		if fa.Risk == store.RiskHigh && fa.ApprovalStatus == store.ApprovalStatusNone {
+			highRiskFixes = append(highRiskFixes, fa)
+		}
+	}
+	if len(highRiskFixes) == 0 {
+		return nil
+	}
+
+	// Get session info for summary.
+	s, err := h.sessionDAO.GetByID(ctx, sessionID)
+	if err != nil {
+		return fmt.Errorf("trigger approval: get session: %w", err)
+	}
+
+	for _, fa := range highRiskFixes {
+		summary := fmt.Sprintf("HIGH-risk fix action [%s] on %s (session %s)",
+			fa.ActionType, fa.Target, sessionID.String())
+
+		ar := &approval.ApprovalRequest{
+			SessionID:   sessionID,
+			FixActionID: fa.ID,
+			Summary:     summary,
+			Risk:        fa.Risk,
+			Target:      fa.Target,
+		}
+
+		token, err := h.approvalClient.RequestApproval(ctx, *ar)
+		if err != nil {
+			h.log.Error("trigger approval: request failed", "fix_action_id", fa.ID, "error", err)
+			continue
+		}
+
+		// Persist approval record to DB.
+		dbApproval := &store.Approval{
+			SessionID:    sessionID,
+			FixActionID:  fa.ID,
+			Status:       store.ApprovalStatusPending,
+			RequestToken: token,
+		}
+		if err := h.approvalDAO.Create(ctx, dbApproval); err != nil {
+			h.log.Error("trigger approval: persist record failed", "fix_action_id", fa.ID, "error", err)
+			continue
+		}
+
+		// Update fix action approval status.
+		h.fixDAO.UpdateApprovalStatus(ctx, fa.ID, store.ApprovalStatusPending)
+
+		h.log.Info("approval gate triggered",
+			"session_id", sessionID,
+			"fix_action_id", fa.ID,
+			"token", token)
+	}
+
+	// Send webhook notification for approval required.
+	if h.webhookNotifier != nil {
+		h.webhookNotifier.Notify(ctx, notify.DiagnosticEvent{
+			EventType: "approval_required",
+			SessionID: sessionID,
+			Status:    string(store.StatusAwaitingApproval),
+			Summary:   fmt.Sprintf("Approval required for %d HIGH-risk fix action(s)", len(highRiskFixes)),
+			Message:   fmt.Sprintf("Session %s requires approval for %d HIGH-risk fix step(s)", sessionID.String(), len(highRiskFixes)),
+			Service:   s.TargetService,
+			Timestamp: time.Now().UTC(),
+		})
+	}
+
+	return nil
+}
+
+// --- M6: Fix Execution ---
+
+// ExecuteFixActions executes all approved fix actions for a session.
+// It is called after the session transitions to FIX_EXECUTING.
+func (h *OrchestratorHandler) ExecuteFixActions(ctx context.Context, sessionID uuid.UUID) error {
+	fixes, err := h.fixDAO.GetBySessionID(ctx, sessionID)
+	if err != nil {
+		return fmt.Errorf("execute fixes: get fixes: %w", err)
+	}
+
+	s, err := h.sessionDAO.GetByID(ctx, sessionID)
+	if err != nil {
+		return fmt.Errorf("execute fixes: get session: %w", err)
+	}
+
+	for _, fa := range fixes {
+		// Skip actions not yet approved / not requiring approval.
+		if fa.RequiresApproval && fa.ApprovalStatus != store.ApprovalStatusApproved {
+			continue
+		}
+		if fa.ExecutionStatus != store.ExecStatusNotStarted {
+			continue
+		}
+
+		// Mark as running.
+		h.fixDAO.UpdateExecutionStatus(ctx, fa.ID, store.ExecStatusRunning)
+
+		execAction := executor.FixAction{
+			ID:           fa.ID,
+			SessionID:    sessionID,
+			ActionType:   fa.ActionType,
+			Target:       fa.Target,
+			Risk:         fa.Risk,
+			RollbackPlan: fa.RollbackPlan,
+		}
+
+		result, err := h.executor.Execute(ctx, execAction)
+		if err != nil {
+			h.log.Error("execute fix: failed",
+				"fix_action_id", fa.ID,
+				"error", err)
+			h.fixDAO.UpdateExecutionStatus(ctx, fa.ID, store.ExecStatusFailed)
+			continue
+		}
+
+		finalStatus := store.ExecStatusSucceeded
+		if result.Status == "FAILED" {
+			finalStatus = store.ExecStatusFailed
+		}
+		h.fixDAO.UpdateExecutionStatus(ctx, fa.ID, finalStatus)
+
+		// Create incident ticket after first succeeded action.
+		if result.Status == "SUCCEEDED" && fa.TicketID == nil {
+			ticketID, err := h.incidentNotifier.CreateIncident(ctx, notify.Incident{
+				SessionID:   sessionID,
+				Summary:     fmt.Sprintf("[%s] Auto-fix: %s on %s", s.TargetService, fa.ActionType, fa.Target),
+				Description: fmt.Sprintf("Fix action %s executed automatically by microservice-diagnosis.\nRollback plan: %s", fa.ActionType, fa.RollbackPlan),
+				Severity:    fa.Risk,
+				Status:      "OPEN",
+				ReportURL:   fmt.Sprintf("/v1/sessions/%s/report", sessionID.String()),
+			})
+			if err != nil {
+				h.log.Warn("execute fixes: create incident ticket failed", "error", err)
+			} else {
+				h.fixDAO.SetTicketID(ctx, fa.ID, ticketID)
+				h.log.Info("execute fixes: incident ticket created", "ticket_id", ticketID)
+			}
+		}
+
+		h.log.Info("fix action executed",
+			"fix_action_id", fa.ID,
+			"status", finalStatus,
+			"message", result.Message)
+	}
+
+	// Advance to VERIFYING after all actions complete.
+	_, err = h.engine.Transition(ctx, sessionID, workflow.EventExecuteComplete)
+	if err != nil && !errors.Is(err, workflow.ErrInvalidTransition) {
+		return fmt.Errorf("execute fixes: advance to verifying: %w", err)
+	}
+
+	// Send notification on fix execution.
+	if h.webhookNotifier != nil {
+		h.webhookNotifier.Notify(ctx, notify.DiagnosticEvent{
+			EventType: "fix_executed",
+			SessionID: sessionID,
+			Status:    string(store.StatusVerifying),
+			Summary:   fmt.Sprintf("Fix actions executed for session %s", sessionID.String()),
+			Service:   s.TargetService,
+			Timestamp: time.Now().UTC(),
+		})
+	}
+
+	return nil
+}
+
+// NotifySessionEvent sends a webhook notification for a session state change.
+func (h *OrchestratorHandler) NotifySessionEvent(ctx context.Context, s *store.DiagnosticSession, eventType, message string) {
+	if h.webhookNotifier == nil {
+		return
+	}
+	h.webhookNotifier.Notify(ctx, notify.DiagnosticEvent{
+		EventType: eventType,
+		SessionID: s.ID,
+		Status:    s.Status,
+		Summary:   message,
+		Service:   s.TargetService,
+		Timestamp: time.Now().UTC(),
+		Labels:    nil,
+	})
 }

@@ -10,7 +10,10 @@ import (
 )
 
 func main() {
-	opts := bootstrap.Options{AgentKind: "orchestrator"}
+	opts := bootstrap.Options{
+		AgentKind:          "orchestrator",
+		OnOrchestratorReady: bootstrap.OrchestratorReady,
+	}
 	if err := bootstrap.Run("orchestrator", opts); err != nil {
 		fmt.Fprintf(os.Stderr, "orchestrator: %v\n", err)
 		os.Exit(1)

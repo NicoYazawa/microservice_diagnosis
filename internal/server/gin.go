@@ -14,17 +14,22 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/NicoYazawa/microservice_diagnosis/api/gen/orchestrator/v1"
+	"github.com/NicoYazawa/microservice_diagnosis/internal/approval"
 	"github.com/NicoYazawa/microservice_diagnosis/internal/config"
 	"github.com/NicoYazawa/microservice_diagnosis/internal/discovery"
+	"github.com/NicoYazawa/microservice_diagnosis/internal/executor"
+	"github.com/NicoYazawa/microservice_diagnosis/internal/notify"
+	"github.com/NicoYazawa/microservice_diagnosis/internal/report"
 	"github.com/NicoYazawa/microservice_diagnosis/internal/store"
 	"github.com/NicoYazawa/microservice_diagnosis/internal/workflow"
 )
 
 // GinServer is the HTTP server that serves REST via Gin.
 type GinServer struct {
-	httpServer *http.Server
-	cfg        *config.Config
-	log        *slog.Logger
+	httpServer   *http.Server
+	cfg          *config.Config
+	log          *slog.Logger
+	reportEngine *report.Engine
 }
 
 // NewGinServer creates a Gin-based HTTP server with REST handlers wired to the data layer.
@@ -35,6 +40,7 @@ func NewGinServer(
 	engine *workflow.Engine,
 	registry discovery.Registry,
 ) *GinServer {
+	reportEngine := report.NewEngine(pool)
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
 	r.Use(gin.Recovery())
@@ -43,11 +49,30 @@ func NewGinServer(
 	sessionDAO := store.NewSessionDAO(pool)
 	fixDAO := store.NewFixActionDAO(pool)
 	approvalDAO := store.NewApprovalDAO(pool)
+	webhookDAO := notify.NewWebhookDAO(pool)
 
-	handler := NewOrchestratorHandler(sessionDAO, fixDAO, approvalDAO, engine, registry, log)
+	// Build M6 components from config.
+	approvalClient := buildApprovalClient(cfg, log)
+	exec := buildExecutor(cfg, log)
+	incidentNotifier := buildIncidentNotifier(cfg)
+	webhookNotifier := notify.NewWebhookNotifier(webhookDAO, log)
+
+	handler := NewOrchestratorHandler(
+		sessionDAO, fixDAO, approvalDAO, webhookDAO,
+		engine, registry, approvalClient, exec, incidentNotifier, webhookNotifier, reportEngine, log,
+	)
 
 	// REST routes.
 	r.GET("/healthz", handler.Healthz)
+	// Serve web dashboard (M7).
+	r.GET("/", func(c *gin.Context) {
+		c.Header("Cache-Control", "no-store")
+		c.File("web/index.html")
+	})
+	r.GET("/dashboard", func(c *gin.Context) {
+		c.Header("Cache-Control", "no-store")
+		c.File("web/index.html")
+	})
 	v1 := r.Group("/v1")
 	{
 		v1.POST("/sessions", handler.CreateSession)
@@ -93,8 +118,57 @@ func NewGinServer(
 			WriteTimeout: 30 * time.Second,
 			IdleTimeout:  60 * time.Second,
 		},
-		cfg: cfg,
-		log: log,
+		cfg:          cfg,
+		log:          log,
+		reportEngine: reportEngine,
+	}
+}
+
+// --- M6 component builders ---
+
+func buildApprovalClient(cfg *config.Config, log *slog.Logger) approval.ApprovalClient {
+	switch cfg.Approval.Mode {
+	case "webhook":
+		return approval.NewWebhookClient(cfg.Approval.Callback, nil)
+	case "noop":
+		return approval.NewNOOPClient()
+	default:
+		log.Warn("approval mode unknown, using NOOP", "mode", cfg.Approval.Mode)
+		return approval.NewNOOPClient()
+	}
+}
+
+func buildExecutor(cfg *config.Config, log *slog.Logger) executor.Executor {
+	switch cfg.Fix.Mode {
+	case "k8s":
+		exec, err := executor.NewK8sExecutor(cfg.Fix.Kubeconfig, log)
+		if err != nil {
+			log.Warn("k8s executor init failed, falling back to NOOP", "error", err)
+			return executor.NewNOOPExecutor()
+		}
+		return exec
+	case "noop", "":
+		return executor.NewNOOPExecutor()
+	default:
+		log.Warn("fix mode unknown, using NOOP", "mode", cfg.Fix.Mode)
+		return executor.NewNOOPExecutor()
+	}
+}
+
+func buildIncidentNotifier(cfg *config.Config) notify.IncidentNotifier {
+	switch cfg.Notify.IncidentNotifier {
+	case "jira":
+		return notify.NewJiraIncidentNotifier(
+			cfg.Notify.JiraBaseURL,
+			cfg.Notify.JiraAuthToken,
+			cfg.Notify.JiraProjectKey,
+		)
+	case "pagerduty":
+		return notify.NewPagerDutyIncidentNotifier(cfg.Notify.PDRoutingKey)
+	case "noop", "":
+		return &notify.NOOPIncidentNotifier{}
+	default:
+		return &notify.NOOPIncidentNotifier{}
 	}
 }
 

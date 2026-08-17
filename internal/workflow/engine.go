@@ -125,20 +125,28 @@ var ValidTransitions = map[string]map[string]string{
 
 // Engine is the workflow state machine engine.
 type Engine struct {
-	pool       *pgxpool.Pool
-	sessionDAO *store.SessionDAO
-	fixDAO     *store.FixActionDAO
-	log        *slog.Logger
+	pool           *pgxpool.Pool
+	sessionDAO     *store.SessionDAO
+	fixDAO         *store.FixActionDAO
+	sessionEventDAO *store.SessionEventDAO
+	log            *slog.Logger
 }
 
 // NewEngine creates a workflow engine.
 func NewEngine(pool *pgxpool.Pool, log *slog.Logger) *Engine {
 	return &Engine{
-		pool:       pool,
-		sessionDAO: store.NewSessionDAO(pool),
-		fixDAO:     store.NewFixActionDAO(pool),
-		log:        log,
+		pool:           pool,
+		sessionDAO:     store.NewSessionDAO(pool),
+		fixDAO:         store.NewFixActionDAO(pool),
+		sessionEventDAO: store.NewSessionEventDAO(pool),
+		log:            log,
 	}
+}
+
+// SetSessionEventDAO replaces the session event DAO (useful when the engine
+// is created before the DAO is available, e.g. in bootstrapping).
+func (e *Engine) SetSessionEventDAO(dao *store.SessionEventDAO) {
+	e.sessionEventDAO = dao
 }
 
 // Transition applies an event to a session and returns the new status.
@@ -210,6 +218,10 @@ func (e *Engine) tryTransition(ctx context.Context, sessionID uuid.UUID, event s
 	}
 
 	e.log.Info("workflow transition", "session_id", sessionID, "from", status, "to", nextStatus, "event", event)
+
+	// Record session event for timeline.
+	e.sessionEventDAO.LogStateTransition(ctx, sessionID, status, nextStatus, "workflow")
+
 	return nextStatus, nil
 }
 
@@ -265,6 +277,79 @@ func (e *Engine) Sweep(ctx context.Context) error {
 		}
 		if _, err := e.Transition(ctx, id, EventFail); err != nil {
 			e.log.Error("workflow: auto-fail stuck session", "session_id", id, "error", err)
+		}
+	}
+	return nil
+}
+
+// SweepFixProposed scans FIX_PROPOSED sessions and evaluates whether they
+// need approval or can move to FIX_SUGGESTED. Also handles sessions ready to
+// execute fixes or verify results.
+func (e *Engine) SweepFixProposed(ctx context.Context) error {
+	// Find FIX_PROPOSED sessions that need their approval status re-evaluated.
+	rows, err := e.pool.Query(ctx, `
+		SELECT id FROM diagnostic_sessions WHERE status = $1`,
+		store.StatusFixProposed)
+	if err != nil {
+		return fmt.Errorf("workflow: sweep fix_proposed query: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			e.log.Error("workflow: scan fix_proposed", "error", err)
+			continue
+		}
+		// Re-evaluate: if no HIGH risk, move to FIX_SUGGESTED.
+		if _, err := e.Transition(ctx, id, EventFixGenerated); err != nil {
+			if !errors.Is(err, ErrInvalidTransition) {
+				e.log.Error("workflow: sweep fix_proposed", "session_id", id, "error", err)
+			}
+		}
+	}
+	return nil
+}
+
+// SweepVerifying scans VERIFYING sessions and auto-resolves or rolls back
+// based on whether all fix actions succeeded.
+func (e *Engine) SweepVerifying(ctx context.Context) error {
+	rows, err := e.pool.Query(ctx, `
+		SELECT id FROM diagnostic_sessions WHERE status = $1`,
+		store.StatusVerifying)
+	if err != nil {
+		return fmt.Errorf("workflow: sweep verifying query: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			e.log.Error("workflow: scan verifying", "error", err)
+			continue
+		}
+		fixes, _ := e.fixDAO.GetBySessionID(ctx, id)
+		allSucceeded := len(fixes) > 0
+		anyFailed := false
+		for _, fa := range fixes {
+			if fa.ExecutionStatus == store.ExecStatusFailed {
+				anyFailed = true
+			}
+			if fa.ExecutionStatus != store.ExecStatusSucceeded {
+				allSucceeded = false
+			}
+		}
+		event := EventVerifySuccess
+		if anyFailed {
+			event = EventVerifyFailure
+		} else if !allSucceeded && len(fixes) == 0 {
+			// No fix actions found in VERIFYING state — treat as failure.
+			event = EventVerifyFailure
+		}
+		if _, err := e.Transition(ctx, id, event); err != nil {
+			if !errors.Is(err, ErrInvalidTransition) {
+				e.log.Error("workflow: sweep verifying", "session_id", id, "error", err)
+			}
 		}
 	}
 	return nil

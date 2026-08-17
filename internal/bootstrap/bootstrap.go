@@ -8,6 +8,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -16,10 +17,15 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/NicoYazawa/microservice_diagnosis/internal/approval"
 	"github.com/NicoYazawa/microservice_diagnosis/internal/config"
 	"github.com/NicoYazawa/microservice_diagnosis/internal/discovery"
+	"github.com/NicoYazawa/microservice_diagnosis/internal/executor"
 	"github.com/NicoYazawa/microservice_diagnosis/internal/logger"
+	"github.com/NicoYazawa/microservice_diagnosis/internal/notify"
+	"github.com/NicoYazawa/microservice_diagnosis/internal/report"
 	"github.com/NicoYazawa/microservice_diagnosis/internal/server"
+	"github.com/NicoYazawa/microservice_diagnosis/internal/store"
 	"github.com/NicoYazawa/microservice_diagnosis/internal/workflow"
 )
 
@@ -28,10 +34,17 @@ type Options struct {
 	// AgentKind is set by agent entrypoints to register as a specific kind in Consul.
 	// e.g. "log", "metric", "trace", "rca", "fix"
 	AgentKind string
-	// SkipConsul disables Consul registration (used for local development without Consul).
+	// SkipConsul disables Consul registry (used for local development without Consul).
 	SkipConsul bool
 	// SkipDatabase skips PostgreSQL connection (used for purely standalone agents).
 	SkipDatabase bool
+	// OnOrchestratorReady is called after the HTTP server starts and the workflow engine
+	// is available, before blocking on the shutdown select. Used to start background loops
+	// (event consumer, sweep) for the orchestrator.
+	OnOrchestratorReady func(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, engine *workflow.Engine, log *slog.Logger)
+	// OnAgentReady is called after the HTTP server starts for agent services.
+	// It receives the Kafka bus config and a logger so the agent can start its consumer/producer.
+	OnAgentReady func(ctx context.Context, cfg *config.Config, log *slog.Logger)
 }
 
 // Run starts a service using the standard startup flow.
@@ -122,7 +135,7 @@ func Run(serviceName string, opts Options) error {
 	if pool != nil && engine != nil {
 		srv = server.NewGinServer(cfg, log, pool, engine, registry)
 	} else {
-		srv = server.NewGinServer(cfg, log, nil, nil, registry)
+		srv = server.NewGinServer(cfg, log, nil, nil, nil)
 	}
 
 	errCh := make(chan error, 1)
@@ -138,6 +151,17 @@ func Run(serviceName string, opts Options) error {
 		"consul", cfg.Consul.Addr,
 		"kafka", cfg.Bus.Brokers,
 	)
+
+	// Fire the orchestrator lifecycle hook after HTTP server is listening.
+	// This starts background loops (event consumer, sweep) for the orchestrator.
+	if pool != nil && engine != nil && opts.OnOrchestratorReady != nil {
+		opts.OnOrchestratorReady(ctx, cfg, pool, engine, log)
+	}
+
+	// Fire the agent lifecycle hook so agents can start their Kafka consumer/producer loops.
+	if opts.OnAgentReady != nil && opts.AgentKind != "" && opts.AgentKind != "orchestrator" {
+		opts.OnAgentReady(ctx, cfg, log)
+	}
 
 	select {
 	case <-ctx.Done():
@@ -161,4 +185,78 @@ func Run(serviceName string, opts Options) error {
 
 	log.Info("service stopped")
 	return nil
+}
+
+// OrchestratorReady is the default OnOrchestratorReady implementation.
+// It wires up the full handler stack and starts the Kafka event loop + sweep cycles.
+func OrchestratorReady(ctx context.Context, cfg *config.Config, pool *pgxpool.Pool, engine *workflow.Engine, log *slog.Logger) {
+	sessionEventDAO := store.NewSessionEventDAO(pool)
+	engine.SetSessionEventDAO(sessionEventDAO)
+
+	sessionDAO := store.NewSessionDAO(pool)
+	fixDAO := store.NewFixActionDAO(pool)
+	approvalDAO := store.NewApprovalDAO(pool)
+	webhookDAO := notify.NewWebhookDAO(pool)
+
+	approvalClient := buildApprovalClient(cfg, log)
+	exec := buildExecutor(cfg, log)
+	incidentNotifier := buildIncidentNotifier(cfg)
+	webhookNotifier := notify.NewWebhookNotifier(webhookDAO, log)
+	reportEngine := report.NewEngine(pool)
+
+	handler := server.NewOrchestratorHandler(
+		sessionDAO, fixDAO, approvalDAO, webhookDAO,
+		engine, discovery.NewMockRegistry(log),
+		approvalClient, exec, incidentNotifier, webhookNotifier, reportEngine, log,
+	)
+
+	server.StartEventLoop(ctx, engine, sessionDAO, fixDAO, sessionEventDAO,
+		handler.TriggerApprovalGate, handler.ExecuteFixActions,
+		cfg.Bus.Brokers, log)
+}
+
+func buildApprovalClient(cfg *config.Config, log *slog.Logger) approval.ApprovalClient {
+	switch cfg.Approval.Mode {
+	case "webhook":
+		return approval.NewWebhookClient(cfg.Approval.Callback, nil)
+	case "noop":
+		return approval.NewNOOPClient()
+	default:
+		log.Warn("approval mode unknown, using NOOP", "mode", cfg.Approval.Mode)
+		return approval.NewNOOPClient()
+	}
+}
+
+func buildExecutor(cfg *config.Config, log *slog.Logger) executor.Executor {
+	switch cfg.Fix.Mode {
+	case "k8s":
+		exec, err := executor.NewK8sExecutor(cfg.Fix.Kubeconfig, log)
+		if err != nil {
+			log.Warn("k8s executor init failed, falling back to NOOP", "error", err)
+			return executor.NewNOOPExecutor()
+		}
+		return exec
+	case "noop", "":
+		return executor.NewNOOPExecutor()
+	default:
+		log.Warn("fix mode unknown, using NOOP", "mode", cfg.Fix.Mode)
+		return executor.NewNOOPExecutor()
+	}
+}
+
+func buildIncidentNotifier(cfg *config.Config) notify.IncidentNotifier {
+	switch cfg.Notify.IncidentNotifier {
+	case "jira":
+		return notify.NewJiraIncidentNotifier(
+			cfg.Notify.JiraBaseURL,
+			cfg.Notify.JiraAuthToken,
+			cfg.Notify.JiraProjectKey,
+		)
+	case "pagerduty":
+		return notify.NewPagerDutyIncidentNotifier(cfg.Notify.PDRoutingKey)
+	case "noop", "":
+		return &notify.NOOPIncidentNotifier{}
+	default:
+		return &notify.NOOPIncidentNotifier{}
+	}
 }

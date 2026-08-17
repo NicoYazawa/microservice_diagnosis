@@ -36,13 +36,39 @@ type Consul struct {
 	Addr string `mapstructure:"addr"` // e.g. "localhost:8500"
 }
 
+// Fix holds fix execution configuration (M6).
+type Fix struct {
+	AutoExecute bool   `mapstructure:"auto_execute"` // if true, execute fix actions automatically without approval
+	Mode       string `mapstructure:"mode"`          // noop / k8s / cloud
+	Kubeconfig  string `mapstructure:"kubeconfig"`   // path to kubeconfig for k8s mode
+}
+
+// Approval holds approval gate configuration (M6).
+type Approval struct {
+	Mode     string `mapstructure:"mode"`      // noop / webhook
+	Callback string `mapstructure:"callback"` // webhook URL for external approval systems
+}
+
+// Notify holds notification configuration (M6).
+type Notify struct {
+	IncidentNotifier string `mapstructure:"incident_notifier"` // noop / jira / pagerduty
+	JiraBaseURL       string `mapstructure:"jira_base_url"`
+	JiraAuthToken     string `mapstructure:"jira_auth_token"`
+	JiraProjectKey    string `mapstructure:"jira_project_key"`
+	PDRoutingKey      string `mapstructure:"pagerduty_routing_key"`
+	WebhookEnabled    bool   `mapstructure:"webhook_enabled"`
+}
+
 // Config holds the common service configuration.
 type Config struct {
-	Service Service `mapstructure:"service"`
-	Log     Log     `mapstructure:"log"`
-	Bus     Bus     `mapstructure:"bus"`
+	Service  Service  `mapstructure:"service"`
+	Log      Log      `mapstructure:"log"`
+	Bus      Bus      `mapstructure:"bus"`
 	Database Database `mapstructure:"database"`
-	Consul  Consul  `mapstructure:"consul"`
+	Consul   Consul   `mapstructure:"consul"`
+	Fix      Fix      `mapstructure:"fix"`
+	Approval Approval `mapstructure:"approval"`
+	Notify   Notify   `mapstructure:"notify"`
 }
 
 // Load loads YAML configuration from path.
