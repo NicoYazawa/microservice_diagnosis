@@ -12,6 +12,7 @@ import (
 type Service struct {
 	Name     string `mapstructure:"name"`
 	HTTPAddr string `mapstructure:"http_addr"`
+	GRPCAddr string `mapstructure:"grpc_addr"` // optional; if set, gRPC-gateway reverse proxy is mounted
 }
 
 // Log holds the logger configuration.
@@ -25,11 +26,23 @@ type Bus struct {
 	Brokers []string `mapstructure:"brokers"`
 }
 
-// Config holds the common service configuration. Future milestones will extend sub-structures (bus/store/workflow/llm etc.).
+// Database holds the PostgreSQL connection configuration.
+type Database struct {
+	URL string `mapstructure:"url"` // e.g. "postgres://user:pass@localhost:5432/mfdh?sslmode=disable"
+}
+
+// Consul holds the Consul service registry configuration.
+type Consul struct {
+	Addr string `mapstructure:"addr"` // e.g. "localhost:8500"
+}
+
+// Config holds the common service configuration.
 type Config struct {
 	Service Service `mapstructure:"service"`
 	Log     Log     `mapstructure:"log"`
 	Bus     Bus     `mapstructure:"bus"`
+	Database Database `mapstructure:"database"`
+	Consul  Consul  `mapstructure:"consul"`
 }
 
 // Load loads YAML configuration from path.
@@ -42,6 +55,8 @@ func Load(path string) (*Config, error) {
 	v.SetDefault("log.level", "info")
 	v.SetDefault("log.format", "json")
 	v.SetDefault("bus.brokers", []string{"localhost:29092"})
+	v.SetDefault("database.url", "postgres://postgres:postgres@localhost:5432/mfdh?sslmode=disable")
+	v.SetDefault("consul.addr", "localhost:8500")
 
 	v.SetEnvPrefix("MFDH")
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))

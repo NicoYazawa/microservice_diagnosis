@@ -1,5 +1,5 @@
-// agent-fix service entrypoint: queries the knowledge base based on RCA results
-// to generate fix suggestions, emitting FIX_ACTION type Observations.
+// agent-fix service entrypoint: generates fix recommendations and optionally executes them,
+// emitting FIX_ACTION type Observations.
 package main
 
 import (
@@ -10,7 +10,8 @@ import (
 )
 
 func main() {
-	if err := bootstrap.Run("agent-fix", bootstrap.Options{}); err != nil {
+	opts := bootstrap.Options{AgentKind: "fix", SkipDatabase: true}
+	if err := bootstrap.Run("agent-fix", opts); err != nil {
 		fmt.Fprintf(os.Stderr, "agent-fix: %v\n", err)
 		os.Exit(1)
 	}

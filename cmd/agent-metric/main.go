@@ -10,7 +10,8 @@ import (
 )
 
 func main() {
-	if err := bootstrap.Run("agent-metric", bootstrap.Options{}); err != nil {
+	opts := bootstrap.Options{AgentKind: "metric", SkipDatabase: true}
+	if err := bootstrap.Run("agent-metric", opts); err != nil {
 		fmt.Fprintf(os.Stderr, "agent-metric: %v\n", err)
 		os.Exit(1)
 	}
