@@ -147,48 +147,51 @@ func (dao *SessionDAO) List(ctx context.Context, f ListFilter) ([]*DiagnosticSes
 	}
 	offset := (f.Page - 1) * f.PageSize
 
-	query := `SELECT id, status, target_service, trigger_type, retry_count, report_url, created_at, updated_at
-		FROM diagnostic_sessions WHERE 1=1`
-	args := []any{}
+	var filterClause string
+	var args []any
 	argIdx := 1
 
 	if f.Status != "" {
-		query += fmt.Sprintf(" AND status = $%d", argIdx)
+		filterClause += fmt.Sprintf(" AND status = $%d", argIdx)
 		args = append(args, f.Status)
 		argIdx++
 	}
 	if f.TargetService != "" {
-		query += fmt.Sprintf(" AND target_service = $%d", argIdx)
+		filterClause += fmt.Sprintf(" AND target_service = $%d", argIdx)
 		args = append(args, f.TargetService)
 		argIdx++
 	}
 	if !f.From.IsZero() {
-		query += fmt.Sprintf(" AND created_at >= $%d", argIdx)
+		filterClause += fmt.Sprintf(" AND created_at >= $%d", argIdx)
 		args = append(args, f.From)
 		argIdx++
 	}
 	if !f.To.IsZero() {
-		query += fmt.Sprintf(" AND created_at <= $%d", argIdx)
+		filterClause += fmt.Sprintf(" AND created_at <= $%d", argIdx)
 		args = append(args, f.To)
 		argIdx++
 	}
 	if f.Keyword != "" {
-		query += fmt.Sprintf(" AND (target_service ILIKE $%d OR id::text ILIKE $%d)", argIdx, argIdx)
+		filterClause += fmt.Sprintf(" AND (target_service ILIKE $%d OR id::text ILIKE $%d)", argIdx, argIdx)
 		args = append(args, "%"+f.Keyword+"%")
 		argIdx++
 	}
 
 	// Count total.
 	var total int
-	countQuery := "SELECT COUNT(*) FROM diagnostic_sessions WHERE 1=1" + query[len("SELECT id, status, target_service, trigger_type, retry_count, report_url, created_at, updated_at FROM diagnostic_sessions WHERE 1=1"):]
+	countQuery := "SELECT COUNT(*) FROM diagnostic_sessions WHERE 1=1" + filterClause
 	if err := dao.pool.QueryRow(ctx, countQuery, args...).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("session count: %w", err)
 	}
 
-	query += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d OFFSET $%d", argIdx, argIdx+1)
-	args = append(args, f.PageSize, offset)
+	// List query with pagination.
+	listQuery := fmt.Sprintf(
+		`SELECT id, status, target_service, trigger_type, retry_count, report_url, created_at, updated_at
+		FROM diagnostic_sessions WHERE 1=1%s ORDER BY created_at DESC LIMIT $%d OFFSET $%d`,
+		filterClause, argIdx, argIdx+1)
+	listArgs := append(args, f.PageSize, offset)
 
-	rows, err := dao.pool.Query(ctx, query, args...)
+	rows, err := dao.pool.Query(ctx, listQuery, listArgs...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("session list: %w", err)
 	}
